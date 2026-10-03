@@ -92,7 +92,7 @@ static inline void *panel_lv_realloc(void *p, size_t n) {
 #define LV_USE_LOG 0
 #define LV_USE_ASSERT_NULL 1
 #define LV_USE_ASSERT_MALLOC 1
-#define LV_USE_PERF_MONITOR 1
+#define LV_USE_PERF_MONITOR 0
 #define LV_USE_PERF_MONITOR_POS LV_ALIGN_BOTTOM_RIGHT
 #define LV_USE_MEM_MONITOR 0
 

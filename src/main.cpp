@@ -12,6 +12,8 @@ static String chosenSSID, draftPassword, draftHost;
 static int networkPage = 0;
 static String formNotice;
 static int page = 0;
+static constexpr int PAGE_MARGIN = 12;
+static constexpr int CONTENT_WIDTH = 480 - 2 * PAGE_MARGIN;
 static bool keepPassword = true;
 static const char *ipKeys[] = {"1", "2", "3", "\n", "4", "5", "6", "\n", "7", "8", "9", "\n", ".", "0", LV_SYMBOL_BACKSPACE, ""};
 static const lv_btnmatrix_ctrl_t ipKeyControls[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
@@ -136,14 +138,14 @@ static void save(lv_event_t *) {
 }
 static lv_obj_t *field(const char *caption, const String &value, int y, int maxLen, bool secret) {
   label(screen, caption, 12, y + 12);
-  lv_obj_t *o = lv_textarea_create(screen); lv_obj_set_pos(o, 112, y); lv_obj_set_size(o, 354, 46);
+  lv_obj_t *o = lv_textarea_create(screen); lv_obj_set_pos(o, 112, y); lv_obj_set_size(o, 356, 46);
   lv_textarea_set_one_line(o, true); lv_textarea_set_max_length(o, maxLen);
   lv_textarea_set_password_mode(o, secret); lv_textarea_set_text(o, value.c_str());
   // A transparent button handles touch like the working navigation buttons.
   // The textarea underneath keeps the exact same field appearance.
   lv_obj_clear_flag(o, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_t *hit = lv_btn_create(screen); lv_obj_remove_style_all(hit);
-  lv_obj_set_pos(hit, 112, y); lv_obj_set_size(hit, 354, 46);
+  lv_obj_set_pos(hit, 112, y); lv_obj_set_size(hit, 356, 46);
   lv_obj_clear_flag(hit, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_add_event_cb(hit, edit, LV_EVENT_CLICKED, o);
   return o;
@@ -200,11 +202,13 @@ static void show(int next) {
   lv_obj_t *old = screen;
   keyboard = nullptr; passField = nullptr; hostField = nullptr;
   screen = lv_obj_create(nullptr); lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_pad_all(screen, 0, 0);
+  lv_obj_set_style_border_width(screen, 0, 0);
   lv_obj_set_style_bg_color(screen, lv_color_hex(0x111827), 0);
   lv_obj_t *title = label(screen, page == 0 ? "Ui24R | Grupos" : page == 1 ? "Entradas | abrir/fechar" :
     page == 2 ? "Solo | selecione os canais" : page == 3 ? "Wi-Fi | configuracoes" : "Wi-Fi | redes disponiveis", 12, 10);
   lv_obj_set_width(title, 393); lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-  wifiButton = button(LV_SYMBOL_WIFI, 423, 15, 42, 42, 103);
+  wifiButton = button(LV_SYMBOL_WIFI, 426, PAGE_MARGIN, 42, 42, 103);
   lv_obj_set_style_radius(wifiButton, 6, 0);
   lv_obj_set_style_pad_all(wifiButton, 0, 0);
   statusLabel = label(screen, "", 12, 36); lv_obj_set_width(statusLabel, 402);
@@ -216,9 +220,9 @@ static void show(int next) {
     lv_obj_remove_event_cb(retryButton, pressed); lv_obj_add_event_cb(retryButton, connectionAction, LV_EVENT_CLICKED, (void *)1);
   } else if (page == 1 || page == 2) {
     for (int i = 0; i < 24; ++i)
-      cells[i] = button("", 8 + (i % 4) * 118, 67 + (i / 4) * 52, 110, 46, i);
-    if (page == 2) soloButton = button("INICIAR SOLO", 8, 383, 464, 40, 30);
-    else label(screen, "Verde: aberto   Vermelho: fechado   Cinza: sem estado", 10, 398);
+      cells[i] = button("", PAGE_MARGIN + (i % 4) * 117, 67 + (i / 4) * 52, 105, 46, i);
+    if (page == 2) soloButton = button("INICIAR SOLO", PAGE_MARGIN, 383, CONTENT_WIDTH, 40, 30);
+    else label(screen, "Verde: aberto   Vermelho: fechado   Cinza: sem estado", PAGE_MARGIN, 398);
   } else if (page == 3) {
     networkButton = field("Rede", chosenSSID, 65, 32, false);
     lv_textarea_set_placeholder_text(networkButton, "Selecionar rede");
@@ -231,8 +235,7 @@ static void show(int next) {
     hostField = field("IP", draftHost, 169, 15, false);
     lv_obj_t *b = button("Salvar e conectar", 12, 226, 456, 42, 99);
     lv_obj_remove_event_cb(b, pressed); lv_obj_add_event_cb(b, save, LV_EVENT_CLICKED, nullptr);
-    label(screen, "Toque na senha ou no IP para digitar", 12, 282);
-    label(screen, "IP da mesa: sem http:// ou porta", 12, 306);
+    label(screen, "IP da mesa: --", 12, 306);
     displayIPLabel = label(screen, "", 12, 332);
     gatewayLabel = label(screen, "", 12, 356);
     retryButton = button("", 12, 383, 456, 40, 99);
@@ -253,11 +256,11 @@ static void show(int next) {
     }
     wifiStartScan();
   }
-  if (page == 4) button("Voltar as configuracoes", 8, 436, 464, 38, 103);
+  if (page == 4) button("Voltar as configuracoes", PAGE_MARGIN, 430, CONTENT_WIDTH, 38, 103);
   else {
-    button("Grupos", 8, 436, 150, 38, 100);
-    button("Canais", 165, 436, 150, 38, 101);
-    button("Solo", 322, 436, 150, 38, 102);
+    button("Grupos", PAGE_MARGIN, 430, 144, 38, 100);
+    button("Canais", PAGE_MARGIN + 156, 430, 144, 38, 101);
+    button("Solo", PAGE_MARGIN + 312, 430, 144, 38, 102);
   }
   lv_scr_load(screen);
   if (old) lv_obj_del(old);

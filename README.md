@@ -170,8 +170,8 @@ ou comunicação com uma mesa física.
 
 Compilado com sucesso em 03/10/2026 com PlatformIO, plataforma
 Espressif32 6.9.0 e as dependências fixadas no `platformio.ini`.
-RAM estática interna: 48.612 bytes (14,8%). Flash da aplicação:
-1.105.521 bytes (35,1% da partição). Objetos LVGL e buffers de desenho
+RAM estática interna: 48.572 bytes (14,8%). Flash da aplicação:
+1.102.377 bytes (35,0% da partição). Objetos LVGL e buffers de desenho
 usam PSRAM. Não foram executados testes na placa ou na mesa.
 
 `bin/firmware.bin` contém apenas a aplicação compilada. Para a primeira
