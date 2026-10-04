@@ -41,6 +41,26 @@ static lv_color_t *buf1;
 static lv_color_t *buf2;
 static lv_disp_drv_t disp_drv;
 static lv_indev_drv_t indev_drv;
+static uint32_t lastInteraction = 0, lastMixerConnection = 0;
+static bool displaySleeping = false, suppressWakeTouch = false;
+static constexpr uint32_t DISCONNECTED_SLEEP_MS = 10UL * 60 * 1000;
+static constexpr uint32_t CONNECTED_SLEEP_MS = 1UL * 60 * 60 * 1000;
+
+bool display_sleeping() { return displaySleeping; }
+
+void display_idle(bool mixerConnected) {
+  const uint32_t now = millis();
+  if (mixerConnected) lastMixerConnection = now;
+  const uint32_t idle = now - lastInteraction;
+  const bool shouldSleep = mixerConnected
+    ? idle >= CONNECTED_SLEEP_MS
+    : idle >= DISCONNECTED_SLEEP_MS && now - lastMixerConnection >= DISCONNECTED_SLEEP_MS;
+  if (!displaySleeping && shouldSleep) {
+    displaySleeping = true;
+    digitalWrite(PINO_RETROILUM, LOW);
+    Serial.println("[display] repouso por inatividade");
+  }
+}
 
 static void lvgl_flush_cb(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
   uint32_t w = area->x2 - area->x1 + 1;
@@ -52,6 +72,18 @@ static void lvgl_flush_cb(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t
 static void lvgl_touch_cb(lv_indev_drv_t *drv, lv_indev_data_t *data) {
   ts.read();
   if (ts.isTouched) {
+    lastInteraction = millis();
+    if (displaySleeping) {
+      displaySleeping = false;
+      suppressWakeTouch = true;
+      digitalWrite(PINO_RETROILUM, HIGH);
+      Serial.println("[display] acordou por toque");
+    }
+    // Consume the entire waking gesture, including a held finger.
+    if (suppressWakeTouch) {
+      data->state = LV_INDEV_STATE_RELEASED;
+      return;
+    }
     int32_t x = ts.points[0].x;
     int32_t y = ts.points[0].y;
 #if TOQUE_TROCAR_XY
@@ -76,6 +108,7 @@ static void lvgl_touch_cb(lv_indev_drv_t *drv, lv_indev_data_t *data) {
     }
 #endif
   } else {
+    suppressWakeTouch = false;
     data->state = LV_INDEV_STATE_RELEASED;
   }
 }
@@ -120,5 +153,6 @@ void display_init() {
   indev_drv.long_press_time = TOQUE_LONGO_MS;
   lv_indev_drv_register(&indev_drv);
 
+  lastInteraction = lastMixerConnection = millis();
   digitalWrite(PINO_RETROILUM, HIGH);
 }

@@ -15,6 +15,7 @@ static uint32_t lastRx, sentAt;
 static std::vector<Change> journal, queue;
 static size_t cursor = 0;
 static bool awaiting = false;
+static bool radioSleeping = false;
 static bool scanning = false;
 static bool scanQueued = false;
 static uint32_t scanStartAt = 0;
@@ -52,6 +53,22 @@ void retryConnection() {
   transportConfigure(host, wifiConnected());
   WiFi.setAutoReconnect(false);
   if (!wifiConnected()) WiFi.begin(ssid.c_str(), password.c_str());
+}
+
+void mixerStandby(bool sleeping) {
+  if (!sleeping && radioSleeping) {
+    radioSleeping = false;
+    WiFi.mode(WIFI_STA);
+    retryConnection();
+    Serial.println("[energia] Wi-Fi retomado por toque");
+  } else if (sleeping && !radioSleeping && !mixerReady() && !scanning) {
+    // cancelConnection preserves the persistent solo recovery journal.
+    cancelConnection();
+    WiFi.disconnect(false, false);
+    WiFi.mode(WIFI_OFF);
+    radioSleeping = true;
+    Serial.println("[energia] Wi-Fi desligado durante repouso sem mesa");
+  }
 }
 
 bool wifiConnected() { return WiFi.status() == WL_CONNECTED; }
@@ -167,7 +184,7 @@ static bool persistJournal() {
   return prefs.putString("journal", data) == data.length();
 }
 static void loadJournal() {
-  String data = prefs.getString("journal", "");
+  String data = prefs.isKey("journal") ? prefs.getString("journal", "") : String();
   int pos = 0;
   while (pos < (int)data.length()) {
     int a = data.indexOf('\t', pos), b = data.indexOf('\t', a + 1), e = data.indexOf('\n', b + 1);

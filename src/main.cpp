@@ -243,9 +243,9 @@ static void show(int next) {
     hostField = field("IP", draftHost, 169, 15, false);
     lv_obj_t *b = button("Salvar e conectar", 12, 226, 456, 42, 99);
     lv_obj_remove_event_cb(b, pressed); lv_obj_add_event_cb(b, save, LV_EVENT_CLICKED, nullptr);
-    label(screen, "IP da mesa: --", 12, 306);
-    displayIPLabel = label(screen, "", 12, 332);
-    gatewayLabel = label(screen, "", 12, 356);
+    label(screen, "IP da mesa: --", 12, 280);
+    displayIPLabel = label(screen, "", 12, 306);
+    gatewayLabel = label(screen, "", 12, 332);
     retryButton = button("", 12, 383, 456, 40, 99);
     lv_obj_remove_event_cb(retryButton, pressed); lv_obj_add_event_cb(retryButton, connectionAction, LV_EVENT_CLICKED, (void *)1);
   } else if (page == 4) {
@@ -343,6 +343,9 @@ void loop() {
   static uint32_t previous = millis(), painted = 0;
   uint32_t now = millis(); lv_tick_inc(now - previous); previous = now;
   mixerLoop();
-  if (now - painted >= 200) { refresh(); painted = now; }
-  lv_timer_handler(); delay(5);
+  if (!display_sleeping() && now - painted >= 200) { refresh(); painted = now; }
+  lv_timer_handler();
+  display_idle(mixerReady());
+  mixerStandby(display_sleeping());
+  delay(display_sleeping() ? 50 : 5);
 }

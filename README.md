@@ -189,10 +189,10 @@ ou comunicação com uma mesa física.
 
 ## Resultado da compilação
 
-Compilado com sucesso em 03/10/2026 com PlatformIO, plataforma
+Compilado com sucesso em 04/10/2026 com PlatformIO, plataforma
 Espressif32 6.9.0 e as dependências fixadas no `platformio.ini`.
-RAM estática interna: 48.572 bytes (14,8%). Flash da aplicação:
-1.102.377 bytes (35,0% da partição). Objetos LVGL e buffers de desenho
+RAM estática interna: 48.476 bytes (14,8%). Flash da aplicação:
+1.070.773 bytes (34,0% da partição). Objetos LVGL e buffers de desenho
 usam PSRAM. Não foram executados testes na placa ou na mesa.
 
 `bin/firmware.bin` contém apenas a aplicação compilada. Para a primeira
@@ -204,3 +204,38 @@ Referência da API WebSocket utilizada:
 [arduinoWebSockets 2.4.1](https://github.com/Links2004/arduinoWebSockets/blob/2.4.1/src/WebSocketsClient.h).
 As chaves e o comportamento de Socket.IO foram extraídos do código
 `cod_fonte_mesa/index.html` fornecido.
+
+## Avisos de inicialização
+
+O driver de toque TAMC_GT911 1.0.2 está em `lib/TAMC_GT911`, com licença
+original e uma adaptação que evita acessar INT/RESET quando não existem
+na placa (pinos -1). O journal de recuperação de solo só é lido se a chave
+já existir na NVS; sua ausência é normal antes do primeiro solo.
+
+`Core dump data check failed` significa que o diagnóstico armazenado na
+partição de core dump não passou na verificação de integridade. Pode ser
+um resíduo de gravações anteriores; o aviso isolado não comprova uma nova
+falha nem defeito da flash. Essa correção não apaga diagnósticos ou a NVS.
+
+## Repouso do display
+
+A retroiluminação apaga após 10 minutos consecutivos sem comunicação
+pronta com a mesa e sem toque, ou após 1 hora sem toque com a mesa
+conectada. Após perder a conexão, é necessário completar os 10 minutos
+sem conexão mesmo que o último toque seja antigo.
+
+O ESP32 e o registro de recuperacao de solo permanecem ativos.
+Qualquer toque acende a tela; esse primeiro gesto é consumido até soltar
+o dedo, evitando acionar controles ao acordar. Não é deep sleep do ESP32.
+
+Durante o repouso, as atualizações visuais são pausadas e o laço principal
+consulta o toque aproximadamente a cada 50 ms. Sem conexão pronta com a
+mesa, o Wi-Fi é desligado sem apagar credenciais ou o journal de solo.
+Ao tocar, o rádio é religado e uma tentativa de conexão é iniciada.
+Se a mesa continuar ausente, a conexão respeita os limites de tempo normais.
+Enquanto conectado, o transporte permanece ativo; quando desabilitado,
+sua tarefa aguarda comandos em vez de consultar continuamente a fila.
+
+Referência medida pelo usuário antes desta otimização: 1,15 W com a tela
+acesa e 0,4 W com iluminação apagada. O novo consumo precisa ser medido
+na placa. Não foi alterado o clock da CPU nem suspenso o controlador RGB.

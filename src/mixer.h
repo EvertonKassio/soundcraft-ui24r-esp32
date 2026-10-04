@@ -33,3 +33,4 @@ void cancelConnection();
 void retryConnection();
 String displayIP();
 String gatewayIP();
+void mixerStandby(bool sleeping);

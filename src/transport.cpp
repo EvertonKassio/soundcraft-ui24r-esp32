@@ -79,7 +79,7 @@ static void worker(void *) {
   });
   for (;;) {
     Config next;
-    if (xQueueReceive(configs, &next, 0) == pdTRUE) {
+    if (xQueueReceive(configs, &next, enabled ? 0 : pdMS_TO_TICKS(100)) == pdTRUE) {
       ws.disconnect(); config = next; initialized = false; protocolConnected = false;
     }
     if (enabled && config.enabled && config.generation == generation.load() && WiFi.status() == WL_CONNECTED) {
