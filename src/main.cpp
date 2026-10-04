@@ -18,6 +18,7 @@ static bool keepPassword = true;
 static const char *ipKeys[] = {"1", "2", "3", "\n", "4", "5", "6", "\n", "7", "8", "9", "\n", ".", "0", LV_SYMBOL_BACKSPACE, ""};
 static const lv_btnmatrix_ctrl_t ipKeyControls[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 static void show(int next);
+static void refresh();
 static lv_obj_t *label(lv_obj_t *parent, const char *text, int x, int y) {
   lv_obj_t *o = lv_label_create(parent); lv_label_set_text(o, text); lv_obj_set_pos(o, x, y); return o;
 }
@@ -30,6 +31,7 @@ static void pressed(lv_event_t *e) {
     if (id == 30) { if (soloActive) stopSolo(); else startSolo(); }
     else if (!soloActive && !mixerBusy()) selected[id] = !selected[id];
   }
+  refresh();
 }
 static lv_obj_t *button(const char *text, int x, int y, int w, int h, int id) {
   lv_obj_t *o = lv_btn_create(screen);
@@ -40,8 +42,14 @@ static lv_obj_t *button(const char *text, int x, int y, int w, int h, int id) {
   lv_obj_set_style_text_align(t, LV_TEXT_ALIGN_CENTER, 0); lv_obj_center(t);
   return o;
 }
-static void setText(lv_obj_t *b, const String &s) { lv_label_set_text(lv_obj_get_child(b, 0), s.c_str()); }
-static void color(lv_obj_t *b, uint32_t c) { lv_obj_set_style_bg_color(b, lv_color_hex(c), 0); }
+static void setText(lv_obj_t *b, const String &s) {
+  lv_obj_t *text = lv_obj_get_child(b, 0);
+  if (strcmp(lv_label_get_text(text), s.c_str()) != 0) lv_label_set_text(text, s.c_str());
+}
+static void color(lv_obj_t *b, uint32_t c) {
+  lv_color_t target = lv_color_hex(c);
+  if (lv_obj_get_style_bg_color(b, LV_PART_MAIN).full != target.full) lv_obj_set_style_bg_color(b, target, 0);
+}
 static void disabled(lv_obj_t *b, bool yes) {
   if (yes) lv_obj_add_state(b, LV_STATE_DISABLED); else lv_obj_clear_state(b, LV_STATE_DISABLED);
 }

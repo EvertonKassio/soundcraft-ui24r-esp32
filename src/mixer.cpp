@@ -27,10 +27,11 @@ static std::vector<WifiNetwork> networks;
 enum class Connection { Paused, Wifi, Mixer, Ready };
 static Connection connection = Connection::Paused;
 static uint32_t connectionSince = 0;
+static constexpr uint32_t MIXER_CONNECTION_TIMEOUT_MS = 20000;
 
 bool connectionAttempting() { return connection == Connection::Wifi || connection == Connection::Mixer; }
 String connectionProgress() {
-  uint32_t limit = connection == Connection::Wifi ? 8000 : 5000;
+  uint32_t limit = connection == Connection::Wifi ? 8000 : MIXER_CONNECTION_TIMEOUT_MS;
   uint32_t elapsed = millis() - connectionSince;
   return String(connection == Connection::Wifi ? "Conectando Wi-Fi" : "Conectando a mesa") + " | " + String(elapsed >= limit ? 0 : (limit - elapsed + 999) / 1000) + " s";
 }
@@ -130,24 +131,31 @@ static bool track(const String &key) {
   return false;
 }
 // Accept both real newline-delimited packets and the space-separated capture.
-static void parse(String data) {
+static void parse(const String &data) {
   int pos = 0;
   while (pos < (int)data.length()) {
-    int d = data.indexOf("SETD^", pos), s = data.indexOf("SETS^", pos);
-    int begin = d < 0 ? s : s < 0 ? d : min(d, s);
-    if (begin < 0) break;
+    auto tokenAt = [&](int offset) {
+      return offset + 5 <= (int)data.length() && data[offset] == 'S' && data[offset + 1] == 'E' && data[offset + 2] == 'T' &&
+        (data[offset + 3] == 'D' || data[offset + 3] == 'S') && data[offset + 4] == '^';
+    };
+    while (pos < (int)data.length() && !tokenAt(pos)) ++pos;
+    if (pos >= (int)data.length()) break;
+    int begin = pos;
     int sep = data.indexOf('^', begin + 5);
     if (sep < 0) break;
-    int nextD = data.indexOf("SETD^", sep + 1), nextS = data.indexOf("SETS^", sep + 1);
-    int end = nextD < 0 ? nextS : nextS < 0 ? nextD : min(nextD, nextS);
-    if (end < 0) end = data.length();
+    int end = sep + 1;
+    while (end < (int)data.length() && data[end] != '\n' && data[end] != '\t' && !tokenAt(end)) ++end;
     String key = data.substring(begin + 5, sep);
+    if (!track(key)) { pos = end; continue; }
     String val = data.substring(sep + 1, end);
     int cut = val.indexOf('\n'); if (cut >= 0) val = val.substring(0, cut);
     cut = val.indexOf('\t'); if (cut >= 0) val = val.substring(0, cut);
     val.trim();
-    if (track(key)) values[key] = val;
+    if (track(key)) {
+      values[key] = val;
+    }
     if (awaiting && cursor < queue.size() && key == queue[cursor].key && same(val, queue[cursor].after)) {
+      Serial.printf("[mesa-net] confirmado: %s=%s\n", key.c_str(), val.c_str());
       awaiting = false; ++cursor;
     }
     pos = end;
@@ -176,6 +184,16 @@ static bool add(std::vector<Change> &out, String key, String target) {
   if (!before.length()) { notice = "Aguardando estado: " + key; return false; }
   out.push_back({key, before, target}); return true;
 }
+static bool sendControls(const std::vector<Change> &changes) {
+  std::vector<String> commands;
+  for (const auto &change : changes)
+    if (!same(mixerValue(change.key), change.after)) commands.push_back("3:::SETD^" + change.key + "^" + change.after);
+  if (!transportSendBatch(commands)) { notice = "Envio ocupado. Tente novamente."; return false; }
+  // Like the mixer's browser UI, apply accepted controls locally. Subsequent
+  // SETD/SETS messages reconcile this state without requesting a full INIT.
+  for (const auto &change : changes) values[change.key] = change.after;
+  notice = ""; return true;
+}
 bool muteChannel(int ch) {
   if (!mixerReady() || mixerBusy() || soloActive || ch < 0 || ch >= 24) return false;
   String mute = mixerValue(ik(ch, "mute")), mask = mixerValue(ik(ch, "mgmask"));
@@ -186,7 +204,7 @@ bool muteChannel(int ch) {
   std::vector<Change> out;
   if (!add(out, ik(ch, "mute"), closed ? "0" : "1") ||
       !add(out, ik(ch, "forceunmute"), closed && grouped ? "1" : "0")) return false;
-  queue = out; cursor = 0; return true;
+  return sendControls(out);
 }
 bool muteGroup(int group) {
   if (!mixerReady() || mixerBusy() || soloActive || group < 0 || group > 3) return false;
@@ -203,7 +221,7 @@ bool muteGroup(int group) {
   }
   if (!found) { notice = "Grupo sem entradas atribuidas"; return false; }
   if (!add(out, "mgmask", String(mask ^ bit))) return false;
-  queue = out; cursor = 0; return true;
+  return sendControls(out);
 }
 bool startSolo() {
   if (!mixerReady() || mixerBusy() || soloActive) return false;
@@ -240,12 +258,17 @@ static void disconnected() {
 }
 static void event(WStype_t type, uint8_t *payload, size_t length) {
   if (type == WStype_DISCONNECTED) { disconnected(); return; }
+  if (type == WStype_PONG) { lastRx = millis(); return; }
+  if (type == WStype_CONNECTED) {
+    connected = true; lastRx = millis(); notice = "";
+    transportSend("3:::INIT"); transportSend("3:::ALIVE"); return;
+  }
   if (type != WStype_TEXT) return;
   String data; data.reserve(length + 1);
   for (size_t i = 0; i < length; ++i) data += (char)payload[i];
   lastRx = millis();
-  if (data.startsWith("1::")) { connected = true; notice = ""; transportSend("3:::INIT"); transportSend("3:::ALIVE"); }
-  if (data.startsWith("3:::")) parse(data.substring(4));
+  if (data.startsWith("1::") && !connected) { connected = true; notice = ""; transportSend("3:::INIT"); transportSend("3:::ALIVE"); }
+  parse(data.startsWith("3:::") ? data.substring(4) : data);
 }
 String wifiSSID() { return ssid; }
 String mixerHost() { return host; }
@@ -297,10 +320,22 @@ void mixerLoop() {
   }
   if (!wifiConnected()) { retryConnection(); return; }
   if (connection == Connection::Mixer) {
-    if (mixerReady()) connection = Connection::Ready;
-    else if (now - connectionSince >= 5000) { cancelConnection(); notice = "Mesa: tempo esgotado. Confira o IP."; return; }
+    if (mixerReady()) {
+      connection = Connection::Ready;
+      Serial.println("[mesa-net] sincronizacao concluida: mgmask recebido");
+    }
+    else if (now - connectionSince >= MIXER_CONNECTION_TIMEOUT_MS) {
+      bool socketConnected = connected;
+      Serial.printf("[mesa-net] tempo esgotado: websocket=%d parametros=%u mgmask=%s\n", connected, (unsigned)values.size(), mixerValue("mgmask").c_str());
+      cancelConnection();
+      notice = socketConnected ? "Mesa conectada, mas sem sincronizacao." : "Mesa: tempo esgotado. Confira o IP.";
+      return;
+    }
   }
-  if (connection == Connection::Ready && (!connected || now - lastRx > 10000)) { retryConnection(); return; }
+  if (connection == Connection::Ready && (!connected || now - lastRx > 10000)) {
+    Serial.printf("[mesa-net] reconectando: websocket=%d sem recepcao ha %lu ms\n", connected, (unsigned long)(now - lastRx));
+    retryConnection(); return;
+  }
   if (recovery && mixerReady()) { stopSolo(); }
   if (!connected || queue.empty()) return;
   if (cursor >= queue.size()) {
@@ -312,12 +347,20 @@ void mixerLoop() {
     notice = ""; return;
   }
   if (awaiting) {
-    if (now - sentAt > 4000) retryConnection();
+    if (now - sentAt > 4000) {
+      const Change &pending = queue[cursor];
+      Serial.printf("[mesa-net] reconectando por falta de confirmacao: %s esperado=%s recebido=%s\n", pending.key.c_str(), pending.after.c_str(), mixerValue(pending.key).c_str());
+      retryConnection();
+    }
     return;
   }
   Change &c = queue[cursor];
   if (same(mixerValue(c.key), c.after)) { ++cursor; return; }
   awaiting = true; sentAt = now;
   String command = "3:::SETD^" + c.key + "^" + c.after;
-  if (!transportSend(command)) retryConnection();
+  Serial.printf("[mesa-net] enviando: %s\n", command.c_str());
+  if (!transportSend(command)) {
+    Serial.println("[mesa-net] reconectando: falha ao enfileirar comando");
+    retryConnection();
+  }
 }

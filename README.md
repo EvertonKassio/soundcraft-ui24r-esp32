@@ -97,9 +97,9 @@ anterior. Configurar outra mesa/rede fica bloqueado durante a sessão.
 A comunicação HTTP/WebSocket roda em uma tarefa separada. Desenho,
 toque, edição e estado da mesa permanecem na tarefa da interface;
 as duas tarefas trocam mensagens por filas. Esperar pela rede não
-interrompe o loop de desenho. As operações TCP e HTTP têm timeout de
+interrompe o loop de desenho. As operações TCP têm timeout de
 400 ms; uma tentativa completa tem até 8 segundos para Wi-Fi, seguidos
-de até 5 segundos para conexão e sincronização inicial com a mesa.
+de até 20 segundos para conexão e sincronização inicial com a mesa.
 
 Durante as tentativas, as telas operacionais ficam esmaecidas com uma
 contagem regressiva e **Cancelar / corrigir**, que abre as configurações.
@@ -120,19 +120,40 @@ cancelar a rede não desfaz alterações da mesa enquanto não há comunicação
 
 ## Comunicação
 
-O `index.html` fornecido usa Socket.IO 0.9: handshake HTTP
-`/socket.io/1/`, transporte `/socket.io/1/websocket/<sessão>`, pacotes
+O firmware conecta diretamente por WebSocket em `ws://<IP da mesa>:80/`,
+sem exigir uma sessão HTTP em `/socket.io/1/`. Usa pacotes
 `3:::SETD^chave^valor`, resposta `2::` aos heartbeats e `3:::ALIVE`
-a cada segundo. O firmware solicita `INIT` ao conectar. Os índices são
+a cada segundo. O firmware solicita `INIT` ao abrir o WebSocket e aceita
+parâmetros com ou sem o prefixo `3:::`. Os índices são
 zero-based: entrada 1 = `i.0`, aux 6 = `a.5`, aux 7 = `a.6`.
 
-Os botões usam estado recebido, não estado otimista. Comandos são
-enviados um por vez e aguardam confirmação `SETD`; falta de confirmação
-em quatro segundos provoca reconexão. O solo não inicia se faltam valores
+Os controles de canais e grupos exibem o estado solicitado imediatamente
+após enfileirar o envio, sem bloquear os demais controles. Mensagens
+`SETD`/`SETS` recebidas atualizam esse estado durante a operação, inclusive
+alterações feitas por outros dispositivos. Não há leitura completa a cada
+toque nem reversão por falta de eco do comando. `INIT` é solicitado somente
+ao estabelecer uma conexão; após desconexão, o estado é lido novamente.
+
+O solo e sua restauração enviam comandos um por vez e aguardam confirmação
+`SETD`. Quatro segundos sem confirmação provocam reconexão para preservar
+a recuperação dos valores do solo.
+Mensagens de medidores não ocupam a fila de parâmetros. Heartbeats recebidos também contam como
+atividade para detectar conexão inativa. O solo não inicia se faltam valores
 necessários para salvar e restaurar. O trecho de `network.txt` fornecido
 é parcial e não contém os masters auxiliares; esses dados precisam chegar
 na sincronização real. Firmware da mesa com comportamento diferente pode
-exigir adaptação do handshake ou das confirmações.
+exigir adaptação do handshake ou das confirmações. O monitor serial
+(115200 baud) registra abertura e desconexão com o prefixo `[mesa-net]`.
+Também registra a primeira mensagem recebida, a conclusão da sincronização
+e os parâmetros disponíveis se o prazo esgotar. Durante o snapshot inicial,
+a tarefa de rede aguarda espaço na fila de entrada sem descartar parâmetros.
+Durante essa espera continua enviando `ALIVE` e comandos pendentes. O parser
+percorre os pacotes em uma única passagem e ignora parâmetros não usados.
+O toque atualiza imediatamente os controles; textos e cores inalterados
+não provocam novas atualizações de estilo.
+
+Referência de conexão direta:
+[Websockets and Soundcraft](https://blechtrottel.net/en/jswebsockets.html).
 
 ## Compilar e gravar
 
