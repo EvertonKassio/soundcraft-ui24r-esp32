@@ -10,7 +10,7 @@ static lv_obj_t *screen, *statusLabel, *cells[24], *groupButtons[6], *soloButton
 static lv_obj_t *wifiIcon, *mixerIcon;
 static lv_obj_t *wifiButton, *networkButton, *passField, *hostField, *keyboard;
 static lv_obj_t *editorOverlay, *editorField, *editedField;
-static lv_obj_t *connectionOverlay, *connectionLabel, *displayIPLabel, *gatewayLabel, *retryButton;
+static lv_obj_t *connectionOverlay, *connectionLabel, *displayIPLabel, *gatewayLabel, *mixerIPLabel, *retryButton;
 static lv_obj_t *networkRows[6], *networkPager, *previousNetworks, *nextNetworks, *scanButton, *emptyNetworks;
 static String chosenSSID, draftPassword, draftHost;
 static int networkPage = 0;
@@ -479,11 +479,11 @@ static void show(int next) {
     passField = field("Senha", draftPassword, 184, 63, true);
     lv_textarea_set_placeholder_text(passField, "Vazio sem editar: manter senha");
     lv_obj_add_event_cb(passField, passwordEdited, LV_EVENT_VALUE_CHANGED, nullptr);
-    hostField = field("IP", draftHost, 236, 15, false);
+    hostField = field("IP da mesa", draftHost, 236, 15, false);
     lv_obj_t *b = button("Salvar e conectar", 12, 426, 456, 42, 99);
     color(b, 0x047857);
     lv_obj_remove_event_cb(b, pressed); lv_obj_add_event_cb(b, save, LV_EVENT_CLICKED, nullptr);
-    label(screen, ("IP da mesa: " + draftHost).c_str(), 12, 300);
+    mixerIPLabel = label(screen, ("IP da mesa: " + (mixerReady() ? mixerHost() : String("Verifique o IP"))).c_str(), 12, 300);
     displayIPLabel = label(screen, "", 12, 324);
     gatewayLabel = label(screen, "", 12, 348);
 
@@ -587,6 +587,7 @@ static void refresh() {
     ? connectionAttempting() ? "Cancelar" : LV_SYMBOL_REFRESH "\nConexao"
     : page == 3 ? (connectionAttempting() ? "Cancelar\ntentativa" : "Tentar\nnovamente") : connectionAttempting() ? "Cancelar tentativa" : "Tentar conexao novamente");
   if (page == 3) {
+    lv_label_set_text(mixerIPLabel, ("IP da mesa: " + (mixerReady() ? mixerHost() : String("Verifique o IP"))).c_str());
     lv_label_set_text(displayIPLabel, ("IP do display: " + displayIP()).c_str());
     lv_label_set_text(gatewayLabel, ("Gateway: " + gatewayIP()).c_str());
   }
