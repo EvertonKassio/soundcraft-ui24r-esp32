@@ -30,7 +30,7 @@ static lv_obj_t *groupNameField, *channelSettings[24];
 static lv_obj_t *colorOptions[8];
 static const uint32_t palette[] = {0xB23535,0xB29D35,0x5FB235,0x35B274,0x3588B2,0x4A35B2,0xB235B2,0x7F7F7F};
 static const char *ipKeys[] = {"1", "2", "3", "\n", "4", "5", "6", "\n", "7", "8", "9", "\n", ".", "0", LV_SYMBOL_BACKSPACE, ""};
-static const lv_btnmatrix_ctrl_t ipKeyControls[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+static const lv_buttonmatrix_ctrl_t ipKeyControls[] = {(lv_buttonmatrix_ctrl_t)1, (lv_buttonmatrix_ctrl_t)1, (lv_buttonmatrix_ctrl_t)1, (lv_buttonmatrix_ctrl_t)1, (lv_buttonmatrix_ctrl_t)1, (lv_buttonmatrix_ctrl_t)1, (lv_buttonmatrix_ctrl_t)1, (lv_buttonmatrix_ctrl_t)1, (lv_buttonmatrix_ctrl_t)1, (lv_buttonmatrix_ctrl_t)1, (lv_buttonmatrix_ctrl_t)1, (lv_buttonmatrix_ctrl_t)1};
 static void show(int next);
 static void refresh();
 static lv_obj_t *label(lv_obj_t *parent, const char *text, int x, int y) {
@@ -49,15 +49,15 @@ static void pressed(lv_event_t *e) {
         int bit = visibilityMode == 2 ? id + 24 : id;
         if (bit >= 30 || (visibilityMode == 2 && id >= 6)) return;
         uint32_t target = draftVisible ^ (1UL << bit);
-        if (__builtin_popcount(target) <= 24) { draftVisible = target; visibilityNotice = ""; lv_obj_add_flag(statusLabel, LV_OBJ_FLAG_HIDDEN); }
-        else { visibilityNotice = "Limite de 24 botoes: canais + grupos"; lv_obj_set_pos(statusLabel, 12, 408); lv_obj_clear_flag(statusLabel, LV_OBJ_FLAG_HIDDEN); }
+        if (__builtin_popcount(target) <= 24) { draftVisible = target; visibilityNotice = ""; lv_obj_set_hidden(statusLabel, true); }
+        else { visibilityNotice = "Limite de 24 botoes: canais + grupos"; lv_obj_set_pos(statusLabel, 12, 408); lv_obj_set_hidden(statusLabel, false); }
         refresh();
       }
       else { colorChannel = id; show(6); }
     } else if (id >= 50 && id <= 52) { visibilityMode = id - 50; show(7); }
     else if (id == 40) {
       if (saveVisibleChannelMask(draftVisible)) show(3);
-      else { visibilityNotice = "Nao foi possivel salvar: confira selecao e solos"; lv_obj_set_pos(statusLabel, 12, 408); lv_obj_clear_flag(statusLabel, LV_OBJ_FLAG_HIDDEN); refresh(); }
+      else { visibilityNotice = "Nao foi possivel salvar: confira selecao e solos"; lv_obj_set_pos(statusLabel, 12, 408); lv_obj_set_hidden(statusLabel, false); refresh(); }
     }
     return;
   }
@@ -90,12 +90,12 @@ static void networkStatusPressed(lv_event_t *) {
   show(3);
 }
 static lv_obj_t *button(const char *text, int x, int y, int w, int h, int id) {
-  lv_obj_t *o = lv_btn_create(screen);
+  lv_obj_t *o = lv_button_create(screen);
   lv_obj_set_pos(o, x, y); lv_obj_set_size(o, w, h);
   lv_obj_set_style_radius(o, 6, 0);
   lv_obj_add_event_cb(o, pressed, LV_EVENT_CLICKED, (void *)(intptr_t)id);
   lv_obj_t *t = lv_label_create(o); lv_label_set_text(t, text);
-  lv_obj_set_width(t, w - 12); lv_label_set_long_mode(t, LV_LABEL_LONG_DOT);
+  lv_obj_set_width(t, w - 12); lv_label_set_long_mode(t, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_set_style_text_align(t, LV_TEXT_ALIGN_CENTER, 0); lv_obj_center(t);
   return o;
 }
@@ -105,13 +105,23 @@ static void setText(lv_obj_t *b, const String &s) {
 }
 static void color(lv_obj_t *b, uint32_t c) {
   lv_color_t target = lv_color_hex(c);
-  if (lv_obj_get_style_bg_color(b, LV_PART_MAIN).full != target.full) lv_obj_set_style_bg_color(b, target, 0);
+  if (!lv_color_eq(lv_obj_get_style_bg_color(b, LV_PART_MAIN), target)) lv_obj_set_style_bg_color(b, target, 0);
+}
+static void updateConnectionButton() {
+  uint32_t wifiTint = wifiConnected() ? 0x047857 : 0xB91C1C;
+  uint32_t mixerTint = mixerReady() ? 0x047857 : connectionAttempting() && wifiConnected() ? 0xB45309 : 0xB91C1C;
+  color(wifiButton, wifiTint);
+  if (!lv_color_eq(lv_obj_get_style_bg_grad_color(wifiButton, LV_PART_MAIN), lv_color_hex(mixerTint)))
+    lv_obj_set_style_bg_grad_color(wifiButton, lv_color_hex(mixerTint), 0);
+  lv_obj_set_style_bg_grad_dir(wifiButton, LV_GRAD_DIR_HOR, 0);
+  lv_obj_set_style_bg_main_stop(wifiButton, 100, 0);
+  lv_obj_set_style_bg_grad_stop(wifiButton, 155, 0);
 }
 static void disabled(lv_obj_t *b, bool yes) {
   if (yes) lv_obj_add_state(b, LV_STATE_DISABLED); else lv_obj_clear_state(b, LV_STATE_DISABLED);
 }
 static void dismissConnectionOverlay() {
-  if (connectionOverlay) lv_obj_del(connectionOverlay);
+  if (connectionOverlay) lv_obj_delete(connectionOverlay);
   connectionOverlay = nullptr; connectionLabel = nullptr;
 }
 static void connectionAction(lv_event_t *e) {
@@ -122,19 +132,19 @@ static void connectionAction(lv_event_t *e) {
 static void refreshConnectionOverlay() {
   if (!connectionAttempting() || page >= 3 || editorOverlay) { dismissConnectionOverlay(); return; }
   if (!connectionOverlay) {
-    connectionOverlay = lv_obj_create(lv_layer_top());
+    connectionOverlay = lv_obj_create(lv_display_get_layer_top(nullptr));
     lv_obj_set_size(connectionOverlay, 480, 480); lv_obj_align(connectionOverlay, LV_ALIGN_TOP_LEFT, 0, 0);
-    lv_obj_clear_flag(connectionOverlay, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(connectionOverlay, false);
     lv_obj_set_style_pad_all(connectionOverlay, 0, 0); lv_obj_set_style_border_width(connectionOverlay, 0, 0);
     lv_obj_set_style_radius(connectionOverlay, 0, 0);
     lv_obj_set_style_bg_color(connectionOverlay, lv_color_black(), 0);
     lv_obj_set_style_bg_opa(connectionOverlay, LV_OPA_60, 0);
     lv_obj_t *panel = lv_obj_create(connectionOverlay);
     lv_obj_set_size(panel, 424, 172); lv_obj_center(panel);
-    lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE); lv_obj_set_style_pad_all(panel, 12, 0);
+    lv_obj_set_scrollable(panel, false); lv_obj_set_style_pad_all(panel, 12, 0);
     connectionLabel = label(panel, "", 0, 8);
     label(panel, "Voce pode cancelar e corrigir os dados", 0, 40);
-    lv_obj_t *b = lv_btn_create(panel); lv_obj_set_size(b, 396, 48); lv_obj_align(b, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_t *b = lv_button_create(panel); lv_obj_set_size(b, 396, 48); lv_obj_align(b, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_add_event_cb(b, connectionAction, LV_EVENT_CLICKED, nullptr);
     lv_obj_t *text = lv_label_create(b); lv_label_set_text(text, "Cancelar / corrigir"); lv_obj_center(text);
   }
@@ -145,7 +155,7 @@ static void closeEditor(bool accept) {
   if (accept && editedField && String(lv_textarea_get_text(editedField)) != lv_textarea_get_text(editorField))
     lv_textarea_set_text(editedField, lv_textarea_get_text(editorField));
   lv_keyboard_set_textarea(keyboard, nullptr);
-  lv_obj_del(editorOverlay);
+  lv_obj_delete(editorOverlay);
   editorOverlay = nullptr; editorField = nullptr; editedField = nullptr; keyboard = nullptr;
 }
 static void editorAction(lv_event_t *e) {
@@ -160,9 +170,9 @@ static void edit(lv_event_t *e) {
   if ((page != 3 && page != 9) || editorOverlay) return;
   editedField = (lv_obj_t *)lv_event_get_user_data(e);
   // Use a visible editor on the top layer, independent of screen focus and clipping.
-  editorOverlay = lv_obj_create(lv_layer_top());
+  editorOverlay = lv_obj_create(lv_display_get_layer_top(nullptr));
   lv_obj_set_pos(editorOverlay, 0, 0); lv_obj_set_size(editorOverlay, 480, 480);
-  lv_obj_clear_flag(editorOverlay, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scrollable(editorOverlay, false);
   lv_obj_set_style_pad_all(editorOverlay, 0, 0);
   lv_obj_set_style_border_width(editorOverlay, 0, 0);
   lv_obj_set_style_radius(editorOverlay, 0, 0);
@@ -187,7 +197,7 @@ static void edit(lv_event_t *e) {
   lv_keyboard_set_textarea(keyboard, editorField);
   lv_obj_add_event_cb(keyboard, keyboardEvent, LV_EVENT_ALL, nullptr);
   for (int i = 0; i < 2; ++i) {
-    lv_obj_t *b = lv_btn_create(editorOverlay);
+    lv_obj_t *b = lv_button_create(editorOverlay);
     lv_obj_set_pos(b, 12 + i * 234, 424); lv_obj_set_size(b, 222, 44);
     lv_obj_add_event_cb(b, editorAction, LV_EVENT_CLICKED, (void *)(intptr_t)i);
     lv_obj_t *t = lv_label_create(b); lv_label_set_text(t, i ? "Aplicar" : "Cancelar"); lv_obj_center(t);
@@ -208,10 +218,10 @@ static lv_obj_t *field(const char *caption, const String &value, int y, int maxL
   lv_textarea_set_password_mode(o, secret); lv_textarea_set_text(o, value.c_str());
   // A transparent button handles touch like the working navigation buttons.
   // The textarea underneath keeps the exact same field appearance.
-  lv_obj_clear_flag(o, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_t *hit = lv_btn_create(screen); lv_obj_remove_style_all(hit);
+  lv_obj_set_clickable(o, false); lv_obj_set_scrollable(o, false);
+  lv_obj_t *hit = lv_button_create(screen); lv_obj_remove_style_all(hit);
   lv_obj_set_pos(hit, 112, y); lv_obj_set_size(hit, 356, 46);
-  lv_obj_clear_flag(hit, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scrollable(hit, false);
   lv_obj_add_event_cb(hit, edit, LV_EVENT_CLICKED, o);
   return o;
 }
@@ -237,7 +247,7 @@ static lv_obj_t *networkRow(int index) {
   lv_obj_t *row = lv_obj_create(screen);
   lv_obj_remove_style_all(row);
   lv_obj_set_pos(row, 12, 94 + index * 48); lv_obj_set_size(row, 456, 46);
-  lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE); lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_clickable(row, true); lv_obj_set_scrollable(row, false);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
   lv_obj_set_style_bg_color(row, lv_color_hex(0x192334), 0);
   lv_obj_set_style_bg_color(row, lv_color_hex(0x263749), LV_STATE_PRESSED);
@@ -245,7 +255,7 @@ static lv_obj_t *networkRow(int index) {
   lv_obj_set_style_border_width(row, 1, 0);
   lv_obj_set_style_border_color(row, lv_color_hex(0x334155), 0);
   lv_obj_set_style_text_color(row, lv_color_hex(0xF1F5F9), 0);
-  lv_obj_t *name = label(row, "", 38, 5); lv_obj_set_width(name, 375); lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+  lv_obj_t *name = label(row, "", 38, 5); lv_obj_set_width(name, 375); lv_label_set_long_mode(name, LV_LABEL_LONG_MODE_DOTS);
   lv_obj_t *detail = label(row, "", 38, 26); lv_obj_set_width(detail, 375);
   lv_obj_set_style_text_color(detail, lv_color_hex(0x94A3B8), 0);
   label(row, LV_SYMBOL_WIFI, 10, 17);
@@ -271,7 +281,7 @@ static void show(int next) {
   lv_obj_t *old = screen;
   retryButton = nullptr;
   keyboard = nullptr; passField = nullptr; hostField = nullptr;
-  screen = lv_obj_create(nullptr); lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
+  screen = lv_obj_create(nullptr); lv_obj_set_scrollable(screen, false);
   lv_obj_set_style_pad_all(screen, 0, 0);
   lv_obj_set_style_border_width(screen, 0, 0);
   lv_obj_set_style_bg_color(screen, lv_color_hex(0x111827), 0);
@@ -283,25 +293,31 @@ static void show(int next) {
     lv_obj_set_style_radius(tab, 6, 0);
   }
   wifiButton = button("", 360, 12, 108, 42, 103);
+  // Status colors must not inherit the theme's blue focus/pressed transitions.
+  lv_obj_remove_style_all(wifiButton);
+  lv_obj_set_pos(wifiButton, 360, 12); lv_obj_set_size(wifiButton, 108, 42);
+  lv_obj_set_style_bg_opa(wifiButton, LV_OPA_COVER, 0);
+  lv_obj_set_style_text_color(wifiButton, lv_color_white(), 0);
+  lv_obj_set_style_transition(wifiButton, nullptr, LV_STATE_ANY);
   lv_obj_set_style_radius(wifiButton, 6, 0);
   lv_obj_set_style_pad_all(wifiButton, 0, 0);
   wifiIcon = label(wifiButton, LV_SYMBOL_WIFI, 18, 12);
   lv_obj_remove_event_cb(wifiButton, pressed);
   lv_obj_add_event_cb(wifiButton, networkStatusPressed, LV_EVENT_CLICKED, nullptr);
-  mixerIcon = lv_img_create(wifiButton);
-  lv_img_set_src(mixerIcon, &uiTextIcon);
+  mixerIcon = lv_image_create(wifiButton);
+  lv_image_set_src(mixerIcon, &uiTextIcon);
   lv_obj_set_pos(mixerIcon, 64, 8);
-  lv_obj_set_style_img_recolor(mixerIcon, lv_color_white(), 0);
-  lv_obj_set_style_img_recolor_opa(mixerIcon, LV_OPA_COVER, 0);
-  lv_obj_clear_flag(wifiIcon, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_clear_flag(mixerIcon, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_style_image_recolor(mixerIcon, lv_color_white(), 0);
+  lv_obj_set_style_image_recolor_opa(mixerIcon, LV_OPA_COVER, 0);
+  lv_obj_set_clickable(wifiIcon, false);
+  lv_obj_set_clickable(mixerIcon, false);
   statusLabel = label(screen, "", 12, page >= 3 && page != 4 ? 114 : 66); lv_obj_set_width(statusLabel, page == 3 ? 336 : 456);
-  lv_label_set_long_mode(statusLabel, LV_LABEL_LONG_DOT);
+  lv_label_set_long_mode(statusLabel, LV_LABEL_LONG_MODE_DOTS);
   if (page == 3) {
     lv_obj_set_height(statusLabel, 42);
-    lv_obj_set_style_pad_top(statusLabel, (42 - lv_font_get_line_height(lv_obj_get_style_text_font(statusLabel, 0))) / 2, 0);
+    lv_obj_set_style_pad_top(statusLabel, (42 - lv_font_get_line_height(lv_obj_get_style_text_font(statusLabel, LV_PART_MAIN))) / 2, 0);
   }
-  if (page < 3 || page == 7) lv_obj_add_flag(statusLabel, LV_OBJ_FLAG_HIDDEN);
+  if (page < 3 || page == 7) lv_obj_set_hidden(statusLabel, true);
   if (page == 0) {
     int rows = (groupCount() + 1) / 2;
     int height = (354 - (rows - 1) * 8) / rows;
@@ -387,7 +403,7 @@ static void show(int next) {
         visibilityMode == 2 ? 148 + (i / 2) * 86 : 148 + (i / 6) * 66,
         visibilityMode == 2 ? 222 : 71, visibilityMode == 2 ? 78 : 60, i);
   } else if (page == 8) {
-    lv_obj_add_flag(statusLabel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(statusLabel, true);
     button("-", 12, 112, 54, 30, 50);
     label(screen, ("Quantidade: " + String(draftGroupCount)).c_str(), 82, 118);
     button("+", 414, 112, 54, 30, 51);
@@ -401,8 +417,8 @@ static void show(int next) {
       lv_obj_set_pos(groupNameField, 12, 144); lv_obj_set_size(groupNameField, 456, 40);
       lv_textarea_set_one_line(groupNameField, true); lv_textarea_set_max_length(groupNameField, 32);
       lv_textarea_set_text(groupNameField, groupName(colorChannel).c_str());
-      lv_obj_clear_flag(groupNameField, LV_OBJ_FLAG_CLICKABLE);
-      lv_obj_t *hit = lv_btn_create(screen); lv_obj_remove_style_all(hit);
+      lv_obj_set_clickable(groupNameField, false);
+      lv_obj_t *hit = lv_button_create(screen); lv_obj_remove_style_all(hit);
       lv_obj_set_pos(hit, 12, 144); lv_obj_set_size(hit, 456, 40);
       lv_obj_add_event_cb(hit, edit, LV_EVENT_CLICKED, groupNameField);
     } else label(screen, ("Cor do canal " + String(colorChannel + 1)).c_str(), 12, 148);
@@ -427,20 +443,14 @@ static void show(int next) {
     lv_obj_add_event_cb(retryButton, connectionAction, LV_EVENT_CLICKED, (void *)1);
   }
   if (page == 4) button("Voltar as configuracoes", 12, 438, 456, 30, 103);
-  lv_scr_load(screen);
-  if (old) lv_obj_del(old);
+  updateConnectionButton();
+  lv_screen_load(screen);
+  if (old) lv_obj_delete(old);
 }
 static void refresh() {
   refreshConnectionOverlay();
   lv_label_set_text(statusLabel, (page == 7 && visibilityNotice.length() ? visibilityNotice : page == 4 ? wifiScanStatus() : page == 3 && formNotice.length() ? formNotice : mixerStatus()).c_str());
-  uint32_t wifiTint = wifiConnected() ? 0x047857 : 0xB91C1C;
-  uint32_t mixerTint = mixerReady() ? 0x047857 : connectionAttempting() && wifiConnected() ? 0xB45309 : 0xB91C1C;
-  color(wifiButton, wifiTint);
-  if (lv_obj_get_style_bg_grad_color(wifiButton, 0).full != lv_color_hex(mixerTint).full)
-    lv_obj_set_style_bg_grad_color(wifiButton, lv_color_hex(mixerTint), 0);
-  lv_obj_set_style_bg_grad_dir(wifiButton, LV_GRAD_DIR_HOR, 0);
-  lv_obj_set_style_bg_main_stop(wifiButton, 100, 0);
-  lv_obj_set_style_bg_grad_stop(wifiButton, 155, 0);
+  updateConnectionButton();
   if (page == 6 || page == 9) {
     for (int i = 0; i < 8; ++i) {
       setText(colorOptions[i], draftColor == palette[i] ? LV_SYMBOL_OK : "");
@@ -504,8 +514,8 @@ static void refresh() {
       uint32_t tint = channelColor(i);
       bool filled = page == 2 ? selected[i] : known && !closed;
       color(cells[i], filled ? tint : 0x111827);
-      if (lv_obj_get_style_border_width(cells[i], 0) != 3) lv_obj_set_style_border_width(cells[i], 3, 0);
-      if (lv_obj_get_style_border_color(cells[i], 0).full != lv_color_hex(tint).full)
+      if (lv_obj_get_style_border_width(cells[i], LV_PART_MAIN) != 3) lv_obj_set_style_border_width(cells[i], 3, 0);
+      if (!lv_color_eq(lv_obj_get_style_border_color(cells[i], LV_PART_MAIN), lv_color_hex(tint)))
         lv_obj_set_style_border_color(cells[i], lv_color_hex(tint), 0);
       disabled(cells[i], page == 2 ? !mixerReady() : !mixerReady() || !known || selected[i]);
     }
@@ -520,19 +530,19 @@ static void refresh() {
       bool available = idx < (int)nets.size();
       disabled(networkRows[i], wifiScanning());
       if (available) {
-        lv_obj_clear_flag(networkRows[i], LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(networkRows[i], false);
         const auto &n = nets[idx];
         lv_label_set_text(lv_obj_get_child(networkRows[i], 0), n.ssid.c_str());
         String detail = String(n.secured ? "Protegida" : "Aberta") + "  |  " + n.rssi + " dBm";
         if (n.ssid == chosenSSID) detail += "  |  Selecionada";
         lv_label_set_text(lv_obj_get_child(networkRows[i], 1), detail.c_str());
         color(networkRows[i], n.ssid == chosenSSID ? 0x163A32 : 0x192334);
-      } else lv_obj_add_flag(networkRows[i], LV_OBJ_FLAG_HIDDEN);
+      } else lv_obj_set_hidden(networkRows[i], true);
     }
     if (nets.empty()) {
-      lv_obj_clear_flag(emptyNetworks, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_set_hidden(emptyNetworks, false);
       lv_label_set_text(emptyNetworks, wifiScanning() ? "Buscando redes Wi-Fi...\nAguarde a varredura dos canais." : "Nenhuma rede disponivel.\nToque em Buscar redes para repetir.");
-    } else lv_obj_add_flag(emptyNetworks, LV_OBJ_FLAG_HIDDEN);
+    } else lv_obj_set_hidden(emptyNetworks, true);
     disabled(previousNetworks, wifiScanning() || networkPage == 0);
     disabled(nextNetworks, wifiScanning() || networkPage >= pages - 1);
     disabled(scanButton, wifiScanning());

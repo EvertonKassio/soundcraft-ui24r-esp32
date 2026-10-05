@@ -1,6 +1,6 @@
 /*
  * display.cpp - Ponte entre o painel ST7701 (via Arduino_GFX, barramento
- * RGB direto do ESP32-S3), o toque capacitivo GT911 e o LVGL 8.3.
+ * RGB direto do ESP32-S3), o toque capacitivo GT911 e o LVGL 9.6.
  */
 #include "display.h"
 #include "board_config.h"
@@ -36,11 +36,11 @@ static TAMC_GT911 ts = TAMC_GT911(
 
 /* -------------------------------------------------------------lvgl */
 static const uint32_t LINHAS_BUFFER = 60; /* altura de cada buffer parcial */
-static lv_disp_draw_buf_t draw_buf;
-static lv_color_t *buf1;
-static lv_color_t *buf2;
-static lv_disp_drv_t disp_drv;
-static lv_indev_drv_t indev_drv;
+
+static uint8_t *buf1;
+static uint8_t *buf2;
+static lv_display_t *display;
+static lv_indev_t *touchInput;
 static uint32_t lastInteraction = 0, lastMixerConnection = 0;
 static bool displaySleeping = false, suppressWakeTouch = false;
 static constexpr uint32_t DISCONNECTED_SLEEP_MS = 10UL * 60 * 1000;
@@ -62,14 +62,14 @@ void display_idle(bool mixerConnected) {
   }
 }
 
-static void lvgl_flush_cb(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
+static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *color_p) {
   uint32_t w = area->x2 - area->x1 + 1;
   uint32_t h = area->y2 - area->y1 + 1;
   gfx->draw16bitRGBBitmap(area->x1, area->y1, (uint16_t *)color_p, w, h);
-  lv_disp_flush_ready(disp);
+  lv_display_flush_ready(disp);
 }
 
-static void lvgl_touch_cb(lv_indev_drv_t *drv, lv_indev_data_t *data) {
+static void lvgl_touch_cb(lv_indev_t *drv, lv_indev_data_t *data) {
   ts.read();
   if (ts.isTouched) {
     lastInteraction = millis();
@@ -126,33 +126,24 @@ void display_init() {
   ts.setRotation(ROTATION_NORMAL);
 
   lv_init();
-  /* O "tick" do LVGL (lv_tick_inc) e alimentado a cada volta do loop()
-   * em main.cpp, com base em millis() - compativel com qualquer versao
-   * do LVGL 8.x, sem depender de lv_tick_set_cb (so em versoes mais
-   * novas) nem de um timer de hardware dedicado. */
+  // Tick is supplied by main.cpp; partial RGB565 buffers reside in PSRAM.
 
-  size_t bytes_buf = LCD_LARGURA * LINHAS_BUFFER * sizeof(lv_color_t);
-  buf1 = (lv_color_t *)heap_caps_malloc(bytes_buf, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-  buf2 = (lv_color_t *)heap_caps_malloc(bytes_buf, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  size_t bytes_buf = LCD_LARGURA * LINHAS_BUFFER * 2;
+  buf1 = (uint8_t *)heap_caps_malloc(bytes_buf, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  buf2 = (uint8_t *)heap_caps_malloc(bytes_buf, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!buf1 || !buf2) {
     Serial.println("Falha: buffers do display. Verifique PSRAM OPI.");
     while (true) delay(1000);
   }
-  lv_disp_draw_buf_init(&draw_buf, buf1, buf2, LCD_LARGURA * LINHAS_BUFFER);
-
-  lv_disp_drv_init(&disp_drv);
-  disp_drv.hor_res = LCD_LARGURA;
-  disp_drv.ver_res = LCD_ALTURA;
-  disp_drv.flush_cb = lvgl_flush_cb;
-  disp_drv.draw_buf = &draw_buf;
-  lv_disp_drv_register(&disp_drv);
-
-  lv_indev_drv_init(&indev_drv);
-  indev_drv.type = LV_INDEV_TYPE_POINTER;
-  indev_drv.read_cb = lvgl_touch_cb;
-  indev_drv.long_press_time = TOQUE_LONGO_MS;
-  lv_indev_drv_register(&indev_drv);
-
+  display = lv_display_create(LCD_LARGURA, LCD_ALTURA);
+  lv_display_set_color_format(display, LV_COLOR_FORMAT_RGB565);
+  lv_display_set_buffers(display, buf1, buf2, bytes_buf, LV_DISPLAY_RENDER_MODE_PARTIAL);
+  lv_display_set_flush_cb(display, lvgl_flush_cb);
+  touchInput = lv_indev_create();
+  lv_indev_set_type(touchInput, LV_INDEV_TYPE_POINTER);
+  lv_indev_set_display(touchInput, display);
+  lv_indev_set_read_cb(touchInput, lvgl_touch_cb);
+  lv_indev_set_long_press_time(touchInput, TOQUE_LONGO_MS);
   lastInteraction = lastMixerConnection = millis();
   digitalWrite(PINO_RETROILUM, HIGH);
 }

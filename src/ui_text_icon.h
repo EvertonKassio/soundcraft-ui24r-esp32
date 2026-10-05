@@ -29,8 +29,9 @@ static const uint8_t uiTextPixels[] = {
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 };
-static const lv_img_dsc_t uiTextIcon = [] {
-  lv_img_dsc_t icon{}; icon.header.cf = LV_IMG_CF_ALPHA_8BIT;
+static const lv_image_dsc_t uiTextIcon = [] {
+  lv_image_dsc_t icon{}; icon.header.cf = LV_COLOR_FORMAT_A8;
+  icon.header.magic = LV_IMAGE_HEADER_MAGIC; icon.header.stride = 34;
   icon.header.w = 34; icon.header.h = 26;
   icon.data_size = sizeof(uiTextPixels); icon.data = uiTextPixels; return icon;
 }();

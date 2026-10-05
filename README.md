@@ -1,6 +1,6 @@
 # Controle Ui24R — ESP32-4848S040C_I
 
-Projeto independente em PlatformIO/Arduino, com LVGL 8.3, painel RGB
+Projeto independente em PlatformIO/Arduino, com LVGL 9.6.0, painel RGB
 ST7701 de 480 × 480 e toque GT911. Do projeto anterior foram copiados
 somente o driver/configuração de display e toque, configuração LVGL e
 parâmetros de compilação da placa. O código de interface e comunicação
@@ -198,7 +198,7 @@ ou comunicação com uma mesa física.
 Compilado com sucesso em 05/10/2026 com PlatformIO, plataforma
 Espressif32 6.9.0 e as dependências fixadas no `platformio.ini`.
 RAM estática interna: 48.500 bytes (14,8%). Flash da aplicação:
-1.087.285 bytes (34,6% da partição). Objetos LVGL e buffers de desenho
+1.251.601 bytes (39,8% da partição). Objetos LVGL e buffers de desenho
 usam PSRAM. Não foram executados testes na placa ou na mesa.
 
 `bin/firmware.bin` contém apenas a aplicação compilada. Para a primeira
@@ -299,3 +299,13 @@ grade estiver cheia. Esses atalhos nao aparecem no Solo. A selecao fica
 salva junto com a visibilidade dos canais.
 
 Ao exceder a selecao de 24 botoes, a configuracao mostra um aviso proprio de limite, independente do estado do Wi-Fi. O icone da mesa usa Ui em negrito e italico. Tocar novamente no status enquanto estiver na aba Wi-Fi retorna a tela operacional anterior.
+
+
+## LVGL 9.6.0
+
+Dependencia fixada em lvgl/lvgl@9.6.0. Display e toque usam as APIs da
+versao 9, com renderizacao parcial RGB565 e pool de 256 KiB na PSRAM.
+O widget Tabview, Flex e Grid estao habilitados em include/lv_conf.h.
+A atualizacao habilita abas nativas sem reorganizar as telas atuais.
+Apos gravar, validar desenho, cores, teclado, toque e despertar na placa.
+Referencia: https://github.com/lvgl/lvgl/releases/tag/v9.6.0
