@@ -4,6 +4,8 @@
 #include "mixer.h"
 #include "ui_text_icon.h"
 
+static lv_obj_t *rootScreen, *tabview;
+static constexpr int TAB_HEIGHT = 60;
 static lv_obj_t *screen, *statusLabel, *cells[24], *groupButtons[6], *soloButton;
 static lv_obj_t *wifiIcon, *mixerIcon;
 static lv_obj_t *wifiButton, *networkButton, *passField, *hostField, *keyboard;
@@ -22,8 +24,10 @@ static lv_obj_t *auxButtons[10];
 static uint16_t draftAux;
 static int colorChannel = 0;
 static uint32_t draftColor, draftVisible;
-static uint8_t draftGroupCount;
-static int visibilityMode = 0;
+static uint8_t draftGroupMask;
+static int groupSettingsMode = 0;
+static int contentTop = TAB_HEIGHT;
+static int visibilityMode = 1;
 static lv_obj_t *channelGroups[6];
 static bool compactGrid;
 static lv_obj_t *groupNameField, *channelSettings[24];
@@ -34,7 +38,7 @@ static const lv_buttonmatrix_ctrl_t ipKeyControls[] = {(lv_buttonmatrix_ctrl_t)1
 static void show(int next);
 static void refresh();
 static lv_obj_t *label(lv_obj_t *parent, const char *text, int x, int y) {
-  lv_obj_t *o = lv_label_create(parent); lv_label_set_text(o, text); lv_obj_set_pos(o, x, y); return o;
+  lv_obj_t *o = lv_label_create(parent); lv_label_set_text(o, text); lv_obj_set_pos(o, x, parent == screen ? y - contentTop : y); return o;
 }
 static void pressed(lv_event_t *e) {
   int id = (intptr_t)lv_event_get_user_data(e);
@@ -50,22 +54,25 @@ static void pressed(lv_event_t *e) {
         if (bit >= 30 || (visibilityMode == 2 && id >= 6)) return;
         uint32_t target = draftVisible ^ (1UL << bit);
         if (__builtin_popcount(target) <= 24) { draftVisible = target; visibilityNotice = ""; lv_obj_set_hidden(statusLabel, true); }
-        else { visibilityNotice = "Limite de 24 botoes: canais + grupos"; lv_obj_set_pos(statusLabel, 12, 408); lv_obj_set_hidden(statusLabel, false); }
+        else { visibilityNotice = "Limite de 24 botoes: canais + grupos"; lv_obj_set_pos(statusLabel, 12, 408 - contentTop); lv_obj_set_hidden(statusLabel, false); }
         refresh();
       }
       else { colorChannel = id; show(6); }
     } else if (id >= 50 && id <= 52) { visibilityMode = id - 50; show(7); }
     else if (id == 40) {
       if (saveVisibleChannelMask(draftVisible)) show(3);
-      else { visibilityNotice = "Nao foi possivel salvar: confira selecao e solos"; lv_obj_set_pos(statusLabel, 12, 408); lv_obj_set_hidden(statusLabel, false); refresh(); }
+      else { visibilityNotice = "Nao foi possivel salvar: confira selecao e solos"; lv_obj_set_pos(statusLabel, 12, 408 - contentTop); lv_obj_set_hidden(statusLabel, false); refresh(); }
     }
     return;
   }
-  if (page == 8 && id < 6) { colorChannel = id; show(9); return; }
   if (page == 8 && id < 100) {
-    if (id == 50 && draftGroupCount > 1) { --draftGroupCount; show(8); }
-    else if (id == 51 && draftGroupCount < 6) { ++draftGroupCount; show(8); }
-    else if (id == 40 && saveGroupCount(draftGroupCount)) show(3);
+    if (id < 6) {
+      if (!groupSettingsMode) { draftGroupMask ^= 1 << id; show(8); }
+      else { colorChannel = id; show(9); }
+    } else if (id == 40) {
+      if (saveGroupDisplayMask(draftGroupMask)) show(3);
+      else { lv_label_set_text(statusLabel, "Selecione pelo menos um grupo"); lv_obj_set_hidden(statusLabel, false); }
+    }
     return;
   }
   if ((page == 6 || page == 9) && id < 100) {
@@ -91,7 +98,7 @@ static void networkStatusPressed(lv_event_t *) {
 }
 static lv_obj_t *button(const char *text, int x, int y, int w, int h, int id) {
   lv_obj_t *o = lv_button_create(screen);
-  lv_obj_set_pos(o, x, y); lv_obj_set_size(o, w, h);
+  lv_obj_set_pos(o, x, y - contentTop); lv_obj_set_size(o, w, h);
   lv_obj_set_style_radius(o, 6, 0);
   lv_obj_add_event_cb(o, pressed, LV_EVENT_CLICKED, (void *)(intptr_t)id);
   lv_obj_t *t = lv_label_create(o); lv_label_set_text(t, text);
@@ -108,14 +115,15 @@ static void color(lv_obj_t *b, uint32_t c) {
   if (!lv_color_eq(lv_obj_get_style_bg_color(b, LV_PART_MAIN), target)) lv_obj_set_style_bg_color(b, target, 0);
 }
 static void updateConnectionButton() {
-  uint32_t wifiTint = wifiConnected() ? 0x047857 : 0xB91C1C;
-  uint32_t mixerTint = mixerReady() ? 0x047857 : connectionAttempting() && wifiConnected() ? 0xB45309 : 0xB91C1C;
-  color(wifiButton, wifiTint);
-  if (!lv_color_eq(lv_obj_get_style_bg_grad_color(wifiButton, LV_PART_MAIN), lv_color_hex(mixerTint)))
-    lv_obj_set_style_bg_grad_color(wifiButton, lv_color_hex(mixerTint), 0);
-  lv_obj_set_style_bg_grad_dir(wifiButton, LV_GRAD_DIR_HOR, 0);
-  lv_obj_set_style_bg_main_stop(wifiButton, 100, 0);
-  lv_obj_set_style_bg_grad_stop(wifiButton, 155, 0);
+  if (!wifiIcon || !mixerIcon) return;
+  uint32_t wifiTint = wifiConnected() ? 0x34D399 : connectionAttempting() ? 0xFBBF24 : 0xF87171;
+  uint32_t mixerTint = mixerReady() ? 0x34D399 : connectionAttempting() && wifiConnected() ? 0xFBBF24 : 0xF87171;
+  lv_color_t wifiColor = lv_color_hex(wifiTint);
+  lv_color_t mixerColor = lv_color_hex(mixerTint);
+  if (!lv_color_eq(lv_obj_get_style_text_color(wifiIcon, LV_PART_MAIN), wifiColor))
+    lv_obj_set_style_text_color(wifiIcon, wifiColor, 0);
+  if (!lv_color_eq(lv_obj_get_style_image_recolor(mixerIcon, LV_PART_MAIN), mixerColor))
+    lv_obj_set_style_image_recolor(mixerIcon, mixerColor, 0);
 }
 static void disabled(lv_obj_t *b, bool yes) {
   if (yes) lv_obj_add_state(b, LV_STATE_DISABLED); else lv_obj_clear_state(b, LV_STATE_DISABLED);
@@ -213,14 +221,14 @@ static void save(lv_event_t *) {
 }
 static lv_obj_t *field(const char *caption, const String &value, int y, int maxLen, bool secret) {
   label(screen, caption, 12, y + 12);
-  lv_obj_t *o = lv_textarea_create(screen); lv_obj_set_pos(o, 112, y); lv_obj_set_size(o, 356, 46);
+  lv_obj_t *o = lv_textarea_create(screen); lv_obj_set_pos(o, 112, y - TAB_HEIGHT); lv_obj_set_size(o, 356, 46);
   lv_textarea_set_one_line(o, true); lv_textarea_set_max_length(o, maxLen);
   lv_textarea_set_password_mode(o, secret); lv_textarea_set_text(o, value.c_str());
   // A transparent button handles touch like the working navigation buttons.
   // The textarea underneath keeps the exact same field appearance.
   lv_obj_set_clickable(o, false); lv_obj_set_scrollable(o, false);
   lv_obj_t *hit = lv_button_create(screen); lv_obj_remove_style_all(hit);
-  lv_obj_set_pos(hit, 112, y); lv_obj_set_size(hit, 356, 46);
+  lv_obj_set_pos(hit, 112, y - TAB_HEIGHT); lv_obj_set_size(hit, 356, 46);
   lv_obj_set_scrollable(hit, false);
   lv_obj_add_event_cb(hit, edit, LV_EVENT_CLICKED, o);
   return o;
@@ -246,7 +254,7 @@ static lv_obj_t *networkControl(const char *text, int x, int y, int w, int h, in
 static lv_obj_t *networkRow(int index) {
   lv_obj_t *row = lv_obj_create(screen);
   lv_obj_remove_style_all(row);
-  lv_obj_set_pos(row, 12, 94 + index * 48); lv_obj_set_size(row, 456, 46);
+  lv_obj_set_pos(row, 12, 94 + index * 48 - TAB_HEIGHT); lv_obj_set_size(row, 456, 46);
   lv_obj_set_clickable(row, true); lv_obj_set_scrollable(row, false);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
   lv_obj_set_style_bg_color(row, lv_color_hex(0x192334), 0);
@@ -263,7 +271,63 @@ static lv_obj_t *networkRow(int index) {
   lv_obj_add_event_cb(row, networksAction, LV_EVENT_CLICKED, (void *)(intptr_t)index);
   return row;
 }
+static int pendingTab = -1;
+static void switchTab(void *) {
+  int target = pendingTab; pendingTab = -1;
+  if (target >= 0) show(target);
+}
+static void tabChanged(lv_event_t *e) {
+  int target = lv_tabview_get_tab_active((lv_obj_t *)lv_event_get_target(e));
+  if (page >= 3) {
+    const int targets[] = {3, 5, 7, 8};
+    target = targets[target];
+  }
+  if (target == page || (target == 3 && page == 4) || (target == 7 && page == 6) || (target == 8 && page == 9)) return;
+  if (target == 3 && page < 3) networkReturnPage = page;
+  pendingTab = target;
+  lv_async_call(switchTab, nullptr);
+}
+static void innerTabChanged(lv_event_t *e) {
+  int index = lv_tabview_get_tab_active((lv_obj_t *)lv_event_get_target(e));
+  if (page == 7) { const int modes[] = {1, 2, 0}; visibilityMode = modes[index]; }
+  else groupSettingsMode = index;
+  pendingTab = page;
+  lv_async_call(switchTab, nullptr);
+}
+static void settingsSubview(bool channels) {
+  lv_obj_t *nested = lv_tabview_create(screen);
+  lv_obj_set_pos(nested, 0, 6); lv_obj_set_size(nested, 480, 414);
+  lv_tabview_set_tab_bar_size(nested, 42);
+  lv_obj_set_style_pad_all(nested, 0, 0); lv_obj_set_style_border_width(nested, 0, 0);
+  lv_obj_set_style_pad_row(nested, 0, 0);
+  lv_obj_t *bar = lv_tabview_get_tab_bar(nested);
+  lv_obj_set_style_pad_all(bar, 0, 0); lv_obj_set_style_pad_column(bar, 0, 0);
+  lv_obj_set_style_bg_color(bar, lv_color_hex(0x1F2937), 0);
+  const char *channelTabs[] = {"Visibilidade", "Vis. Grupos", "Cores"};
+  const char *groupTabs[] = {"Visibilidade", "Editar"};
+  int active = channels ? (visibilityMode == 1 ? 0 : visibilityMode == 2 ? 1 : 2) : groupSettingsMode;
+  for (int i = 0; i < (channels ? 3 : 2); ++i) {
+    lv_obj_t *pane = lv_tabview_add_tab(nested, channels ? channelTabs[i] : groupTabs[i]);
+    lv_obj_set_style_pad_all(pane, 0, 0); lv_obj_set_style_border_width(pane, 0, 0);
+    lv_obj_set_style_bg_color(pane, lv_color_hex(0x111827), 0); lv_obj_set_scrollable(pane, false);
+    if (i == active) screen = pane;
+    lv_obj_t *tab = lv_obj_get_child(bar, i);
+    lv_obj_set_style_radius(tab, 0, 0); lv_obj_set_style_pad_all(tab, 4, 0);
+    lv_obj_set_style_bg_color(tab, lv_color_hex(0x1F2937), 0);
+    lv_obj_set_style_bg_color(tab, lv_color_hex(0x334155), LV_STATE_CHECKED);
+    lv_obj_set_style_text_color(tab, lv_color_white(), LV_STATE_ANY);
+  }
+  lv_obj_t *content = lv_tabview_get_content(nested);
+  lv_obj_set_style_pad_all(content, 0, 0); lv_obj_set_style_pad_column(content, 0, 0);
+  lv_obj_set_scrollable(content, false);
+  lv_tabview_set_active(nested, active, LV_ANIM_OFF);
+  lv_obj_add_event_cb(nested, innerTabChanged, LV_EVENT_VALUE_CHANGED, nullptr);
+  contentTop = 108;
+  lv_obj_set_parent(statusLabel, screen);
+  lv_obj_set_pos(statusLabel, 12, 408 - contentTop);
+}
 static void show(int next) {
+  if (next >= 3 && page < 3) networkReturnPage = page;
   dismissConnectionOverlay();
   closeEditor(false);
   if (page == 3 && passField && hostField) {
@@ -274,55 +338,105 @@ static void show(int next) {
     chosenSSID = wifiSSID(); draftPassword = ""; draftHost = mixerHost(); keepPassword = true; formNotice = "";
   }
   if (next == 7 && page != 6 && page != 7) draftVisible = visibleChannelMask() | ((uint32_t)visibleGroupMask() << 24);
-  if (next == 8 && page != 8 && page != 9) draftGroupCount = groupCount();
+  if (next == 8 && page != 8 && page != 9) draftGroupMask = groupDisplayMask();
   if (next == 6) draftColor = channelColor(colorChannel);
   if (next == 9) draftColor = groupColor(colorChannel);
-  page = next;
-  lv_obj_t *old = screen;
+  page = next; contentTop = TAB_HEIGHT;
+  lv_obj_t *old = rootScreen;
   retryButton = nullptr;
   keyboard = nullptr; passField = nullptr; hostField = nullptr;
-  screen = lv_obj_create(nullptr); lv_obj_set_scrollable(screen, false);
-  lv_obj_set_style_pad_all(screen, 0, 0);
-  lv_obj_set_style_border_width(screen, 0, 0);
-  lv_obj_set_style_bg_color(screen, lv_color_hex(0x111827), 0);
-  const char *tabs[] = {"Grupos", "Canais", "Solo"};
-  int activeTab = page == 0 ? 0 : page == 1 ? 1 : page == 2 ? 2 : -1;
-  for (int i = 0; i < 3; ++i) {
-    lv_obj_t *tab = button(tabs[i], 12 + i * 116, 12, 108, 42, 100 + i);
-    color(tab, activeTab == i ? 0x2563EB : 0x334155);
-    lv_obj_set_style_radius(tab, 6, 0);
+  rootScreen = lv_obj_create(nullptr);
+  lv_obj_set_style_pad_all(rootScreen, 0, 0);
+  lv_obj_set_style_bg_color(rootScreen, lv_color_hex(0x111827), 0);
+  tabview = lv_tabview_create(rootScreen);
+  lv_obj_set_size(tabview, 480, 480);
+  lv_tabview_set_tab_bar_position(tabview, LV_DIR_TOP);
+  lv_tabview_set_tab_bar_size(tabview, TAB_HEIGHT);
+  lv_obj_set_style_pad_all(tabview, 0, 0);
+  lv_obj_set_style_border_width(tabview, 0, 0);
+  lv_obj_set_style_pad_row(tabview, 0, 0);
+  lv_obj_t *bar = lv_tabview_get_tab_bar(tabview);
+  lv_obj_set_style_pad_all(bar, 0, 0);
+  lv_obj_set_style_pad_column(bar, 0, 0);
+  lv_obj_set_style_bg_color(bar, lv_color_hex(0x1F2937), 0);
+  const bool settings = page >= 3;
+  if (settings) lv_obj_set_style_pad_right(bar, 48, 0);
+  const char *mainTabs[] = {"Grupos", "Canais", "Solo", "Config."};
+  const char *settingsTabs[] = {"Wi-Fi", "Aux solo", "Canais", "Grupos"};
+  const char **tabs = settings ? settingsTabs : mainTabs;
+  int activeTab = settings ? (page <= 4 ? 0 : page == 5 ? 1 : page <= 7 ? 2 : 3) : page;
+  for (int i = 0; i < 4; ++i) {
+    lv_obj_t *pane = lv_tabview_add_tab(tabview, tabs[i]);
+    lv_obj_set_style_pad_all(pane, 0, 0);
+    lv_obj_set_style_border_width(pane, 0, 0);
+    lv_obj_set_style_bg_color(pane, lv_color_hex(0x111827), 0);
+    lv_obj_set_scrollable(pane, false);
+    if (i == activeTab) screen = pane;
+    lv_obj_t *tab = lv_obj_get_child(bar, i);
+    lv_obj_set_style_text_font(tab, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_pad_all(tab, 4, 0);
+    lv_obj_set_style_radius(tab, 0, 0);
+    lv_obj_set_style_bg_color(tab, lv_color_hex(0x1F2937), 0);
+    lv_obj_set_style_bg_color(tab, lv_color_hex(0x334155), LV_STATE_CHECKED);
+    lv_obj_set_style_text_color(tab, lv_color_white(), LV_STATE_ANY);
+    lv_obj_set_style_border_color(tab, lv_color_hex(0x60A5FA), LV_STATE_CHECKED);
+    lv_obj_set_style_border_side(tab, LV_BORDER_SIDE_BOTTOM, LV_STATE_CHECKED);
+    lv_obj_set_style_border_width(tab, 3, LV_STATE_CHECKED);
   }
-  wifiButton = button("", 360, 12, 108, 42, 103);
-  // Status colors must not inherit the theme's blue focus/pressed transitions.
-  lv_obj_remove_style_all(wifiButton);
-  lv_obj_set_pos(wifiButton, 360, 12); lv_obj_set_size(wifiButton, 108, 42);
-  lv_obj_set_style_bg_opa(wifiButton, LV_OPA_COVER, 0);
-  lv_obj_set_style_text_color(wifiButton, lv_color_white(), 0);
-  lv_obj_set_style_transition(wifiButton, nullptr, LV_STATE_ANY);
-  lv_obj_set_style_radius(wifiButton, 6, 0);
-  lv_obj_set_style_pad_all(wifiButton, 0, 0);
-  wifiIcon = label(wifiButton, LV_SYMBOL_WIFI, 18, 12);
-  lv_obj_remove_event_cb(wifiButton, pressed);
-  lv_obj_add_event_cb(wifiButton, networkStatusPressed, LV_EVENT_CLICKED, nullptr);
-  mixerIcon = lv_image_create(wifiButton);
+  lv_obj_t *content = lv_tabview_get_content(tabview);
+  lv_obj_set_style_pad_all(content, 0, 0);
+  lv_obj_set_style_pad_column(content, 0, 0);
+  lv_obj_set_scrollable(content, false);
+  lv_tabview_set_active(tabview, activeTab, LV_ANIM_OFF);
+  lv_obj_add_event_cb(tabview, tabChanged, LV_EVENT_VALUE_CHANGED, nullptr);
+  wifiIcon = nullptr; mixerIcon = nullptr;
+  if (!settings) {
+  wifiButton = lv_obj_get_child(bar, 3);
+  lv_obj_t *caption = lv_obj_get_child(wifiButton, 0);
+  lv_obj_align(caption, LV_ALIGN_TOP_MID, 0, -2);
+  lv_obj_t *icons = lv_obj_create(wifiButton);
+  lv_obj_remove_style_all(icons);
+  lv_obj_set_scrollable(icons, false); lv_obj_set_clickable(icons, false);
+  wifiIcon = label(icons, LV_SYMBOL_WIFI, 0, 0);
+  lv_obj_update_layout(wifiIcon);
+  lv_obj_set_size(icons, lv_obj_get_width(wifiIcon) + 18 + 43, 26);
+  lv_obj_align(icons, LV_ALIGN_BOTTOM_MID, 0, -2);
+  lv_obj_align(wifiIcon, LV_ALIGN_LEFT_MID, 0, 0);
+  mixerIcon = lv_image_create(icons);
   lv_image_set_src(mixerIcon, &uiTextIcon);
-  lv_obj_set_pos(mixerIcon, 64, 8);
+  lv_image_set_scale(mixerIcon, 320); // 125% of the original size (256).
+  lv_obj_update_layout(wifiIcon);
+  lv_obj_align(mixerIcon, LV_ALIGN_RIGHT_MID, -4, 0);
   lv_obj_set_style_image_recolor(mixerIcon, lv_color_white(), 0);
   lv_obj_set_style_image_recolor_opa(mixerIcon, LV_OPA_COVER, 0);
   lv_obj_set_clickable(wifiIcon, false);
   lv_obj_set_clickable(mixerIcon, false);
-  statusLabel = label(screen, "", 12, page >= 3 && page != 4 ? 114 : 66); lv_obj_set_width(statusLabel, page == 3 ? 336 : 456);
+  } else {
+    lv_obj_t *back = lv_button_create(rootScreen);
+    lv_obj_set_pos(back, 432, 0); lv_obj_set_size(back, 48, TAB_HEIGHT);
+    lv_obj_set_style_radius(back, 0, 0);
+    lv_obj_set_style_bg_color(back, lv_color_hex(0x334155), 0);
+    lv_obj_t *text = lv_label_create(back); lv_label_set_text(text, LV_SYMBOL_LEFT); lv_obj_set_style_text_font(text, &lv_font_montserrat_20, 0); lv_obj_center(text);
+    lv_obj_add_event_cb(back, pressed, LV_EVENT_CLICKED, (void *)(intptr_t)(100 + networkReturnPage));
+  }
+  statusLabel = label(screen, "", 12, page == 3 ? 78 : page >= 5 ? 114 : 66); lv_obj_set_width(statusLabel, page == 3 ? 260 : 456);
   lv_label_set_long_mode(statusLabel, LV_LABEL_LONG_MODE_DOTS);
   if (page == 3) {
+    lv_obj_set_x(statusLabel, 88);
     lv_obj_set_height(statusLabel, 42);
     lv_obj_set_style_pad_top(statusLabel, (42 - lv_font_get_line_height(lv_obj_get_style_text_font(statusLabel, LV_PART_MAIN))) / 2, 0);
   }
-  if (page < 3 || page == 7) lv_obj_set_hidden(statusLabel, true);
+  if (page < 3 || page >= 5) lv_obj_set_hidden(statusLabel, true);
   if (page == 0) {
-    int rows = (groupCount() + 1) / 2;
+    int rows = (__builtin_popcount(groupDisplayMask()) + 1) / 2;
     int height = (354 - (rows - 1) * 8) / rows;
-    for (int i = 0; i < groupCount(); ++i)
-      groupButtons[i] = button(groupName(i).c_str(), 12 + (i % 2) * 232, 66 + (i / 2) * (height + 8), 224, height, i);
+    int slot = 0;
+    for (int i = 0; i < 6; ++i) {
+      groupButtons[i] = nullptr;
+      if (!(groupDisplayMask() & (1 << i))) continue;
+      groupButtons[i] = button(groupName(i).c_str(), 12 + (slot % 2) * 232, 66 + (slot / 2) * (height + 8), 224, height, i);
+      ++slot;
+    }
   } else if (page == 1 || page == 2) {
     int count = __builtin_popcount(visibleChannelMask());
     if (page == 1) count += __builtin_popcount(visibleGroupMask());
@@ -351,21 +465,27 @@ static void show(int next) {
       ++slot;
     }
   } else if (page == 3) {
-    networkButton = field("Rede", chosenSSID, 164, 32, false);
+    wifiIcon = label(screen, LV_SYMBOL_WIFI, 12, 88);
+    lv_obj_set_style_text_font(wifiIcon, &lv_font_montserrat_20, 0);
+    mixerIcon = lv_image_create(screen); lv_image_set_src(mixerIcon, &uiTextIcon);
+    lv_image_set_scale(mixerIcon, 320);
+    lv_obj_set_pos(mixerIcon, 44, 86 - TAB_HEIGHT);
+    lv_obj_set_style_image_recolor_opa(mixerIcon, LV_OPA_COVER, 0);
+    networkButton = field("Rede", chosenSSID, 132, 32, false);
     lv_textarea_set_placeholder_text(networkButton, "Selecionar rede");
     lv_obj_t *networkHit = lv_obj_get_child(screen, -1);
     lv_obj_remove_event_cb(networkHit, edit);
     lv_obj_add_event_cb(networkHit, openNetworks, LV_EVENT_CLICKED, nullptr);
-    passField = field("Senha", draftPassword, 216, 63, true);
+    passField = field("Senha", draftPassword, 184, 63, true);
     lv_textarea_set_placeholder_text(passField, "Vazio sem editar: manter senha");
     lv_obj_add_event_cb(passField, passwordEdited, LV_EVENT_VALUE_CHANGED, nullptr);
-    hostField = field("IP", draftHost, 268, 15, false);
+    hostField = field("IP", draftHost, 236, 15, false);
     lv_obj_t *b = button("Salvar e conectar", 12, 426, 456, 42, 99);
     color(b, 0x047857);
     lv_obj_remove_event_cb(b, pressed); lv_obj_add_event_cb(b, save, LV_EVENT_CLICKED, nullptr);
-    label(screen, "IP da mesa: --", 12, 320);
-    displayIPLabel = label(screen, "", 12, 344);
-    gatewayLabel = label(screen, "", 12, 368);
+    label(screen, ("IP da mesa: " + draftHost).c_str(), 12, 300);
+    displayIPLabel = label(screen, "", 12, 324);
+    gatewayLabel = label(screen, "", 12, 348);
 
   } else if (page == 4) {
     networkPage = 0;
@@ -383,45 +503,49 @@ static void show(int next) {
     }
     wifiStartScan();
   }
-  if (page >= 3 && page != 4) {
-    const char *names[] = {"Wi-Fi", "Aux solo", "Canais", "Grupos"};
-    const int targets[] = {3, 5, 7, 8};
-    int tab = page == 3 ? 0 : page == 5 ? 1 : (page == 6 || page == 7) ? 2 : 3;
-    for (int i = 0; i < 4; ++i)
-      color(button(names[i], 12 + i * 116, 66, 108, 42, 100 + targets[i]), i == tab ? 0x2563EB : 0x334155);
-  }
   if (page == 5) {
+    label(screen, "Reproduzir solo em:", 18, 78);
     draftAux = soloAuxMask();
-    for (int i = 0; i < 10; ++i) auxButtons[i] = button(("AUX " + String(i + 1)).c_str(), 12 + (i % 5) * 93, 152 + (i / 5) * 94, 84, 84, i);
-    label(screen, "Selecionados: escuta nos fones", 12, 344);
+    for (int i = 0; i < 10; ++i) {
+      auxButtons[i] = lv_checkbox_create(screen);
+      lv_checkbox_set_text(auxButtons[i], ("Aux." + String(i + 1)).c_str());
+      lv_obj_set_pos(auxButtons[i], 18 + (i / 5) * 232, 110 + (i % 5) * 54 - TAB_HEIGHT);
+      lv_obj_set_size(auxButtons[i], 212, 46);
+      lv_obj_set_style_text_font(auxButtons[i], &lv_font_montserrat_14, 0);
+      lv_obj_set_style_text_color(auxButtons[i], lv_color_white(), 0);
+      lv_obj_set_style_pad_all(auxButtons[i], 8, 0);
+      lv_obj_add_event_cb(auxButtons[i], pressed, LV_EVENT_VALUE_CHANGED, (void *)(intptr_t)i);
+    }
 
   } else if (page == 7) {
-    const char *modes[] = {"Cores", "Visibilidade", "Grupos"};
-    for (int i = 0; i < 3; ++i) color(button(modes[i], 12 + i * 155, 112, 146, 30, 50 + i), visibilityMode == i ? 0x2563EB : 0x334155);
+    settingsSubview(true);
     for (int i = 0; i < (visibilityMode == 2 ? 6 : 24); ++i)
       channelSettings[i] = button(String(i + 1).c_str(), visibilityMode == 2 ? 12 + (i % 2) * 234 : 12 + (i % 6) * 77,
-        visibilityMode == 2 ? 148 + (i / 2) * 86 : 148 + (i / 6) * 66,
-        visibilityMode == 2 ? 222 : 71, visibilityMode == 2 ? 78 : 60, i);
+        visibilityMode == 2 ? 116 + (i / 2) * 96 : 116 + (i / 6) * 73,
+        visibilityMode == 2 ? 222 : 71, visibilityMode == 2 ? 90 : 67, i);
   } else if (page == 8) {
     lv_obj_set_hidden(statusLabel, true);
-    button("-", 12, 112, 54, 30, 50);
-    label(screen, ("Quantidade: " + String(draftGroupCount)).c_str(), 82, 118);
-    button("+", 414, 112, 54, 30, 51);
+    settingsSubview(false);
     for (int i = 0; i < 6; ++i) {
-      lv_obj_t *b = button((String(i + 1) + "  " + groupName(i)).c_str(), 12 + (i % 2) * 234, 148 + (i / 2) * 88, 222, 80, i);
-      color(b, groupColor(i)); disabled(b, i >= draftGroupCount);
+      lv_obj_t *b = button((String(i + 1) + "  " + groupName(i)).c_str(), 12 + (i % 2) * 234, 116 + (i / 2) * 96, 222, 90, i);
+      bool visible = draftGroupMask & (1 << i);
+      color(b, groupSettingsMode || visible ? groupColor(i) : 0x111827);
+      lv_obj_set_style_border_width(b, 2, 0);
+      lv_obj_set_style_border_color(b, lv_color_hex(groupColor(i)), 0);
+      if (!groupSettingsMode) setText(b, groupName(i) + (visible ? "\nVisivel" : "\nOculto"));
     }
   } else if (page == 6 || page == 9) {
     if (page == 9) {
+      label(screen, ("Nome do grupo " + String(colorChannel + 1)).c_str(), 12, 112);
       groupNameField = lv_textarea_create(screen);
-      lv_obj_set_pos(groupNameField, 12, 144); lv_obj_set_size(groupNameField, 456, 40);
+      lv_obj_set_pos(groupNameField, 12, 144 - TAB_HEIGHT); lv_obj_set_size(groupNameField, 456, 40);
       lv_textarea_set_one_line(groupNameField, true); lv_textarea_set_max_length(groupNameField, 32);
       lv_textarea_set_text(groupNameField, groupName(colorChannel).c_str());
       lv_obj_set_clickable(groupNameField, false);
       lv_obj_t *hit = lv_button_create(screen); lv_obj_remove_style_all(hit);
-      lv_obj_set_pos(hit, 12, 144); lv_obj_set_size(hit, 456, 40);
+      lv_obj_set_pos(hit, 12, 144 - TAB_HEIGHT); lv_obj_set_size(hit, 456, 40);
       lv_obj_add_event_cb(hit, edit, LV_EVENT_CLICKED, groupNameField);
-    } else label(screen, ("Cor do canal " + String(colorChannel + 1)).c_str(), 12, 148);
+    } else label(screen, ((page == 9 ? "Cor do grupo " : "Cor do canal ") + String(colorChannel + 1)).c_str(), 12, 148);
     for (int i = 0; i < 8; ++i) {
       colorOptions[i] = button("", 12 + (i % 4) * 117, (page == 9 ? 196 : 180) + (i / 4) * 76, 105, 66, i);
       color(colorOptions[i], palette[i]);
@@ -430,7 +554,7 @@ static void show(int next) {
   if (page >= 5) color(button("Voltar", 246, 426, 222, 42, page == 6 ? 107 : page == 9 ? 108 : 103), 0x475569);
   if (page >= 5) color(button("Salvar", 12, 426, 222, 42, 40), 0x047857);
   else if (page == 3) {
-    retryButton = button("Tentar\nnovamente", 360, 114, 108, 42, 99);
+    retryButton = button("Tentar\nnovamente", 360, 78, 108, 42, 99);
     lv_obj_remove_event_cb(retryButton, pressed);
     lv_obj_add_event_cb(retryButton, connectionAction, LV_EVENT_CLICKED, (void *)1);
   } else if (page != 4) {
@@ -444,7 +568,7 @@ static void show(int next) {
   }
   if (page == 4) button("Voltar as configuracoes", 12, 438, 456, 30, 103);
   updateConnectionButton();
-  lv_screen_load(screen);
+  lv_screen_load(rootScreen);
   if (old) lv_obj_delete(old);
 }
 static void refresh() {
@@ -468,7 +592,8 @@ static void refresh() {
   }
   if (page == 5) {
     for (int i = 0; i < 10; ++i) {
-      color(auxButtons[i], draftAux & (1 << i) ? 0x047857 : 0x334155);
+      if (draftAux & (1 << i)) lv_obj_add_state(auxButtons[i], LV_STATE_CHECKED);
+      else lv_obj_clear_state(auxButtons[i], LV_STATE_CHECKED);
       disabled(auxButtons[i], soloActive || mixerBusy());
     }
   }
@@ -483,7 +608,8 @@ static void refresh() {
     }
   }
   if (page == 0) {
-    for (int i = 0; i < groupCount(); ++i) {
+    for (int i = 0; i < 6; ++i) {
+      if (!groupButtons[i]) continue;
       bool muted = mixerValue("mgmask").toInt() & (1 << i);
       setText(groupButtons[i], String(i + 1) + "  " + groupName(i) + "\n" + (locked ? "AGUARDE" : muted ? "FECHADO" : "ABERTO"));
       color(groupButtons[i], muted ? 0x111827 : groupColor(i));

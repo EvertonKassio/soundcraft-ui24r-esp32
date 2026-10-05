@@ -50,3 +50,6 @@ uint32_t visibleChannelMask();
 bool saveVisibleChannelMask(uint32_t mask);
 
 uint8_t visibleGroupMask();
+
+uint8_t groupDisplayMask();
+bool saveGroupDisplayMask(uint8_t mask);

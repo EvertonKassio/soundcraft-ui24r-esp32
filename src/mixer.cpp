@@ -22,6 +22,13 @@ static uint16_t headphoneAuxMask = (1 << 3) | (1 << 5) | (1 << 6) | (1 << 7);
 static uint32_t channelColors[24], groupColors[6];
 static String groupNames[6];
 static uint8_t displayedGroups = 4;
+static uint8_t displayedGroupMask = 0x0F;
+uint8_t groupDisplayMask() { return displayedGroupMask; }
+bool saveGroupDisplayMask(uint8_t mask) {
+  mask &= 0x3F;
+  if (!mask || prefs.putUChar("groupMask", mask) != 1) return false;
+  displayedGroupMask = mask; return true;
+}
 static uint32_t visibleInputs = 0xFFFFFF;
 String groupName(int group) { return groupNames[group]; }
 uint8_t groupCount() { return displayedGroups; }
@@ -86,11 +93,12 @@ static std::vector<WifiNetwork> networks;
 enum class Connection { Paused, Wifi, Mixer, Ready };
 static Connection connection = Connection::Paused;
 static uint32_t connectionSince = 0;
-static constexpr uint32_t MIXER_CONNECTION_TIMEOUT_MS = 20000;
+static constexpr uint32_t WIFI_CONNECTION_TIMEOUT_MS = 10000;
+static constexpr uint32_t MIXER_CONNECTION_TIMEOUT_MS = 10000;
 
 bool connectionAttempting() { return connection == Connection::Wifi || connection == Connection::Mixer; }
 String connectionProgress() {
-  uint32_t limit = connection == Connection::Wifi ? 8000 : MIXER_CONNECTION_TIMEOUT_MS;
+  uint32_t limit = connection == Connection::Wifi ? WIFI_CONNECTION_TIMEOUT_MS : MIXER_CONNECTION_TIMEOUT_MS;
   uint32_t elapsed = millis() - connectionSince;
   return String(connection == Connection::Wifi ? "Conectando Wi-Fi" : "Conectando a mesa") + " | " + String(elapsed >= limit ? 0 : (limit - elapsed + 999) / 1000) + " s";
 }
@@ -109,8 +117,12 @@ void retryConnection() {
   disconnected(); notice = ""; connectionSince = millis();
   connection = wifiConnected() ? Connection::Mixer : Connection::Wifi;
   transportConfigure(host, wifiConnected());
-  WiFi.setAutoReconnect(false);
-  if (!wifiConnected()) WiFi.begin(ssid.c_str(), password.c_str());
+  // Retry transient association failures within the bounded connection window.
+  WiFi.setAutoReconnect(true);
+  if (!wifiConnected()) {
+    WiFi.begin(ssid.c_str(), password.c_str());
+    connectionSince = millis();
+  }
 }
 
 void mixerStandby(bool sleeping) {
@@ -378,7 +390,7 @@ bool saveNetwork(const String &s, const String &p, const String &h) {
   if (prefs.putString("network", config) != config.length()) return false;
   ssid = s; password = p; host = h;
   transportConfigure(host, false); disconnected(); WiFi.disconnect();
-  WiFi.setAutoReconnect(false); notice = "";
+  WiFi.setAutoReconnect(true); notice = "";
   connection = Connection::Wifi; connectionSince = millis();
   WiFi.begin(ssid.c_str(), password.c_str()); return true;
 }
@@ -398,8 +410,13 @@ void mixerInit() {
   for (int i = 0; i < 6; ++i) groupNames[i] = prefs.getString(("gname" + String(i)).c_str(), names[i]);
   displayedGroups = prefs.getUChar("groupCount", 4);
   if (displayedGroups < 1 || displayedGroups > 6) displayedGroups = 4;
+  displayedGroupMask = prefs.getUChar("groupMask", (1 << displayedGroups) - 1) & 0x3F;
+  if (!displayedGroupMask) displayedGroupMask = 0x0F;
   visibleInputs = prefs.getUInt("visibleInputs", 0xFFFFFF) & 0x3FFFFFFF;
   if (!visibleInputs) visibleInputs = 0xFFFFFF;
+  WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
+    Serial.printf("[wifi] desconectado: motivo=%u\n", info.wifi_sta_disconnected.reason);
+  }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
   loadJournal(); WiFi.mode(WIFI_STA); transportInit(); retryConnection();
 }
 String mixerStatus() {
@@ -420,7 +437,7 @@ void mixerLoop() {
   if (connection == Connection::Paused) return;
   if (connection == Connection::Wifi) {
     if (wifiConnected()) { connection = Connection::Mixer; connectionSince = now; transportConfigure(host, true); }
-    else if (now - connectionSince >= 8000) { cancelConnection(); notice = "Wi-Fi: tempo esgotado. Confira rede/senha."; }
+    else if (now - connectionSince >= WIFI_CONNECTION_TIMEOUT_MS) { cancelConnection(); notice = "Wi-Fi: tempo esgotado. Confira rede/senha."; }
     return;
   }
   if (!wifiConnected()) { retryConnection(); return; }
