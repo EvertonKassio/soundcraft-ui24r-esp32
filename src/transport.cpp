@@ -26,7 +26,10 @@ static void worker(void *) {
     if (millis() - lastAlive >= 1000) { ws.sendTXT("3:::ALIVE"); lastAlive = millis(); }
     Send send;
     for (int i = 0; i < 4 && xQueueReceive(outgoing, &send, 0) == pdTRUE; ++i)
-      if (send.generation == config.generation && !ws.sendTXT(send.text)) Serial.printf("[mesa-net] falha ao enviar: %s\n", send.text);
+      if (send.generation == config.generation && !ws.sendTXT(send.text)) {
+        Serial.printf("[mesa-net] falha ao enviar: %s\n", send.text);
+        ws.disconnect(); protocolConnected = false; return;
+      }
   };
   ws.onEvent([&](WStype_t type, uint8_t *data, size_t len) {
     if (!enabled || config.generation != generation.load()) return;

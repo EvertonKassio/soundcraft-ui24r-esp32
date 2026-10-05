@@ -4,6 +4,7 @@
 #include "mixer.h"
 
 static lv_obj_t *screen, *statusLabel, *cells[24], *groupButtons[4], *soloButton;
+static lv_obj_t *wifiIcon, *mixerIcon;
 static lv_obj_t *wifiButton, *networkButton, *passField, *hostField, *keyboard;
 static lv_obj_t *editorOverlay, *editorField, *editedField;
 static lv_obj_t *connectionOverlay, *connectionLabel, *displayIPLabel, *gatewayLabel, *retryButton;
@@ -15,6 +16,12 @@ static int page = 0;
 static constexpr int PAGE_MARGIN = 12;
 static constexpr int CONTENT_WIDTH = 480 - 2 * PAGE_MARGIN;
 static bool keepPassword = true;
+static lv_obj_t *auxButtons[10];
+static uint16_t draftAux;
+static int colorChannel = 0;
+static uint32_t draftColor;
+static lv_obj_t *colorOptions[8];
+static const uint32_t palette[] = {0xB23535,0xB29D35,0x5FB235,0x35B274,0x3588B2,0x4A35B2,0xB235B2,0x7F7F7F};
 static const char *ipKeys[] = {"1", "2", "3", "\n", "4", "5", "6", "\n", "7", "8", "9", "\n", ".", "0", LV_SYMBOL_BACKSPACE, ""};
 static const lv_btnmatrix_ctrl_t ipKeyControls[] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 static void show(int next);
@@ -24,12 +31,27 @@ static lv_obj_t *label(lv_obj_t *parent, const char *text, int x, int y) {
 }
 static void pressed(lv_event_t *e) {
   int id = (intptr_t)lv_event_get_user_data(e);
+  if (page == 5 && id < 100) {
+    if (id < 10) draftAux ^= 1 << id;
+    else if (id == 40 && saveSoloAuxMask(draftAux)) { show(2); return; }
+    refresh(); return;
+  }
+  if (page == 7 && id < 24) { colorChannel = id; show(6); return; }
+  if (page == 8 && id < 4) { colorChannel = id; show(9); return; }
+  if ((page == 7 || page == 8) && id == 40) { show(3); return; }
+  if ((page == 6 || page == 9) && id < 100) {
+    if (id < 8) { draftColor = palette[id]; refresh(); }
+    else if (id == 40) {
+      bool saved = page == 9 ? saveGroupColor(colorChannel, draftColor) : saveChannelColor(colorChannel, draftColor);
+      if (saved) show(page == 9 ? 8 : 7);
+    }
+    return;
+  }
   if (id >= 100) { show(id - 100); return; }
   if (page == 0) muteGroup(id);
   if (page == 1) muteChannel(id);
   if (page == 2) {
-    if (id == 30) { if (soloActive) stopSolo(); else startSolo(); }
-    else if (!soloActive && !mixerBusy()) selected[id] = !selected[id];
+    if (id < 24) toggleSolo(id);
   }
   refresh();
 }
@@ -179,7 +201,7 @@ static lv_obj_t *networkControl(const char *text, int x, int y, int w, int h, in
 static lv_obj_t *networkRow(int index) {
   lv_obj_t *row = lv_obj_create(screen);
   lv_obj_remove_style_all(row);
-  lv_obj_set_pos(row, 12, 66 + index * 51); lv_obj_set_size(row, 456, 49);
+  lv_obj_set_pos(row, 12, 94 + index * 48); lv_obj_set_size(row, 456, 46);
   lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE); lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
   lv_obj_set_style_bg_color(row, lv_color_hex(0x192334), 0);
@@ -206,90 +228,162 @@ static void show(int next) {
   if (next == 3 && page != 3 && page != 4) {
     chosenSSID = wifiSSID(); draftPassword = ""; draftHost = mixerHost(); keepPassword = true; formNotice = "";
   }
+  if (next == 6) draftColor = channelColor(colorChannel);
+  if (next == 9) draftColor = groupColor(colorChannel);
   page = next;
   lv_obj_t *old = screen;
+  retryButton = nullptr;
   keyboard = nullptr; passField = nullptr; hostField = nullptr;
   screen = lv_obj_create(nullptr); lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_pad_all(screen, 0, 0);
   lv_obj_set_style_border_width(screen, 0, 0);
   lv_obj_set_style_bg_color(screen, lv_color_hex(0x111827), 0);
-  lv_obj_t *title = label(screen, page == 0 ? "Ui24R | Grupos" : page == 1 ? "Entradas | abrir/fechar" :
-    page == 2 ? "Solo | selecione os canais" : page == 3 ? "Wi-Fi | configuracoes" : "Wi-Fi | redes disponiveis", 12, 10);
-  lv_obj_set_width(title, 393); lv_label_set_long_mode(title, LV_LABEL_LONG_DOT);
-  wifiButton = button(LV_SYMBOL_WIFI, 426, PAGE_MARGIN, 42, 42, 103);
+  const char *tabs[] = {"Grupos", "Canais", "Solo"};
+  int activeTab = page == 0 ? 0 : page == 1 ? 1 : page == 2 ? 2 : -1;
+  for (int i = 0; i < 3; ++i) {
+    lv_obj_t *tab = button(tabs[i], 12 + i * 110, 12, 102, 42, 100 + i);
+    color(tab, activeTab == i ? 0x2563EB : 0x334155);
+    lv_obj_set_style_radius(tab, 6, 0);
+  }
+  wifiButton = button("", 342, 12, 126, 42, 103);
   lv_obj_set_style_radius(wifiButton, 6, 0);
   lv_obj_set_style_pad_all(wifiButton, 0, 0);
-  statusLabel = label(screen, "", 12, 36); lv_obj_set_width(statusLabel, 402);
+  wifiIcon = label(wifiButton, LV_SYMBOL_WIFI, 22, 12);
+  mixerIcon = label(wifiButton, LV_SYMBOL_AUDIO, 86, 12);
+  lv_obj_clear_flag(wifiIcon, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_clear_flag(mixerIcon, LV_OBJ_FLAG_CLICKABLE);
+  statusLabel = label(screen, "", 12, page >= 3 && page != 4 ? 110 : 66); lv_obj_set_width(statusLabel, 456);
   lv_label_set_long_mode(statusLabel, LV_LABEL_LONG_DOT);
+  if (page < 3 || page == 7) lv_obj_add_flag(statusLabel, LV_OBJ_FLAG_HIDDEN);
   if (page == 0) {
     const char *names[] = {"1  VOCAL", "2  INSTRUMENTOS", "3  BATERIA", "4  SEM FIO"};
-    for (int i = 0; i < 4; ++i) groupButtons[i] = button(names[i], 12 + (i % 2) * 234, 74 + (i / 2) * 151, 222, 137, i);
-    retryButton = button("Tentar conexao novamente", 12, 383, 456, 40, 99);
-    lv_obj_remove_event_cb(retryButton, pressed); lv_obj_add_event_cb(retryButton, connectionAction, LV_EVENT_CLICKED, (void *)1);
+    for (int i = 0; i < 4; ++i) groupButtons[i] = button(names[i], 12 + (i % 2) * 234, 66 + (i / 2) * 180, 222, 174, i);
+
   } else if (page == 1 || page == 2) {
-    for (int i = 0; i < 24; ++i)
-      cells[i] = button("", PAGE_MARGIN + (i % 4) * 117, 67 + (i / 4) * 52, 105, 46, i);
-    if (page == 2) soloButton = button("INICIAR SOLO", PAGE_MARGIN, 383, CONTENT_WIDTH, 40, 30);
-    else label(screen, "Verde: aberto   Vermelho: fechado   Cinza: sem estado", PAGE_MARGIN, 398);
+    for (int i = 0; i < 24; ++i) {
+      cells[i] = button("", PAGE_MARGIN + (i % 5) * 92, 66 + (i / 5) * 80, 88, 74, i);
+      lv_obj_set_style_pad_all(cells[i], 3, 0);
+      lv_obj_set_style_radius(cells[i], 7, 0);
+      lv_obj_set_style_shadow_width(cells[i], 0, 0);
+      lv_obj_remove_event_cb(cells[i], pressed);
+      lv_obj_add_event_cb(cells[i], pressed, LV_EVENT_SHORT_CLICKED, (void *)(intptr_t)i);
+    }
+
   } else if (page == 3) {
-    networkButton = field("Rede", chosenSSID, 65, 32, false);
+    networkButton = field("Rede", chosenSSID, 136, 32, false);
     lv_textarea_set_placeholder_text(networkButton, "Selecionar rede");
     lv_obj_t *networkHit = lv_obj_get_child(screen, -1);
     lv_obj_remove_event_cb(networkHit, edit);
     lv_obj_add_event_cb(networkHit, openNetworks, LV_EVENT_CLICKED, nullptr);
-    passField = field("Senha", draftPassword, 117, 63, true);
+    passField = field("Senha", draftPassword, 188, 63, true);
     lv_textarea_set_placeholder_text(passField, "Vazio sem editar: manter senha");
     lv_obj_add_event_cb(passField, passwordEdited, LV_EVENT_VALUE_CHANGED, nullptr);
-    hostField = field("IP", draftHost, 169, 15, false);
-    lv_obj_t *b = button("Salvar e conectar", 12, 226, 456, 42, 99);
+    hostField = field("IP", draftHost, 240, 15, false);
+    lv_obj_t *b = button("Salvar e conectar", 12, 296, 456, 42, 99);
     lv_obj_remove_event_cb(b, pressed); lv_obj_add_event_cb(b, save, LV_EVENT_CLICKED, nullptr);
-    label(screen, "IP da mesa: --", 12, 280);
-    displayIPLabel = label(screen, "", 12, 306);
-    gatewayLabel = label(screen, "", 12, 332);
-    retryButton = button("", 12, 383, 456, 40, 99);
-    lv_obj_remove_event_cb(retryButton, pressed); lv_obj_add_event_cb(retryButton, connectionAction, LV_EVENT_CLICKED, (void *)1);
+    label(screen, "IP da mesa: --", 12, 352);
+    displayIPLabel = label(screen, "", 12, 376);
+    gatewayLabel = label(screen, "", 12, 400);
+
   } else if (page == 4) {
     networkPage = 0;
     for (int i = 0; i < 6; ++i) networkRows[i] = networkRow(i);
     emptyNetworks = label(screen, "", 20, 182); lv_obj_set_width(emptyNetworks, 440);
     lv_obj_set_style_text_align(emptyNetworks, LV_TEXT_ALIGN_CENTER, 0);
-    previousNetworks = networkControl(LV_SYMBOL_LEFT, 12, 381, 42, 42, 11);
-    networkPager = label(screen, "", 60, 395); lv_obj_set_width(networkPager, 94);
+    previousNetworks = networkControl(LV_SYMBOL_LEFT, 12, 390, 42, 42, 11);
+    networkPager = label(screen, "", 60, 402); lv_obj_set_width(networkPager, 94);
     lv_obj_set_style_text_align(networkPager, LV_TEXT_ALIGN_CENTER, 0);
-    nextNetworks = networkControl(LV_SYMBOL_RIGHT, 160, 381, 42, 42, 12);
-    scanButton = networkControl(LV_SYMBOL_REFRESH " Buscar redes", 216, 381, 252, 42, 10);
+    nextNetworks = networkControl(LV_SYMBOL_RIGHT, 160, 390, 42, 42, 12);
+    scanButton = networkControl(LV_SYMBOL_REFRESH " Buscar redes", 216, 390, 252, 42, 10);
     for (lv_obj_t *arrow : {previousNetworks, nextNetworks}) {
       lv_obj_set_style_radius(arrow, 6, 0); lv_obj_set_style_pad_all(arrow, 0, 0);
       lv_obj_set_style_bg_color(arrow, lv_color_hex(0x334155), 0);
     }
     wifiStartScan();
   }
-  if (page == 4) button("Voltar as configuracoes", PAGE_MARGIN, 430, CONTENT_WIDTH, 38, 103);
-  else {
-    button("Grupos", PAGE_MARGIN, 430, 144, 38, 100);
-    button("Canais", PAGE_MARGIN + 156, 430, 144, 38, 101);
-    button("Solo", PAGE_MARGIN + 312, 430, 144, 38, 102);
+  if (page >= 3 && page != 4) {
+    const char *names[] = {"Wi-Fi", "Aux solo", "Cor canal", "Cor grupo"};
+    const int targets[] = {3, 5, 7, 8};
+    int tab = page == 3 ? 0 : page == 5 ? 1 : (page == 6 || page == 7) ? 2 : 3;
+    for (int i = 0; i < 4; ++i)
+      color(button(names[i], 12 + i * 116, 66, 108, 36, 100 + targets[i]), i == tab ? 0x2563EB : 0x334155);
   }
+  if (page == 5) {
+    draftAux = soloAuxMask();
+    for (int i = 0; i < 10; ++i) auxButtons[i] = button(("AUX " + String(i + 1)).c_str(), 12 + (i % 5) * 93, 152 + (i / 5) * 94, 84, 84, i);
+    label(screen, "Selecionados: escuta nos fones", 12, 344);
+    button("Salvar", 12, 374, 456, 40, 40);
+  } else if (page == 7) {
+    for (int i = 0; i < 24; ++i) {
+      lv_obj_t *b = button(String(i + 1).c_str(), 12 + (i % 6) * 77, 148 + (i / 6) * 66, 71, 60, i);
+      color(b, channelColor(i));
+    }
+  } else if (page == 8) {
+    const char *names[] = {"VOCAL", "INSTRUMENTOS", "BATERIA", "SEM FIO"};
+    for (int i = 0; i < 4; ++i) color(button(names[i], 12 + (i % 2) * 234, 148 + (i / 2) * 128, 222, 116, i), groupColor(i));
+  } else if (page == 6 || page == 9) {
+    label(screen, ((page == 9 ? "Cor do grupo " : "Cor do canal ") + String(colorChannel + 1)).c_str(), 12, 148);
+    for (int i = 0; i < 8; ++i) {
+      colorOptions[i] = button("", 12 + (i % 4) * 117, 180 + (i / 4) * 76, 105, 66, i);
+      color(colorOptions[i], palette[i]);
+    }
+  }
+  if (page >= 5) button("Voltar", 12, 426, 222, 42, page == 6 ? 107 : page == 9 ? 108 : 103);
+  if (page == 6 || page == 7 || page == 8 || page == 9) button("Salvar", 246, 426, 222, 42, 40);
+  else if (page != 4) {
+    retryButton = button(page == 1 || page == 2 ? LV_SYMBOL_REFRESH "\nConexao" : "Tentar conexao novamente",
+      page == 1 || page == 2 ? 380 : page >= 5 ? 246 : 12,
+      page == 1 || page == 2 ? 386 : 426,
+      page == 1 || page == 2 ? 88 : page >= 5 ? 222 : 456,
+      page == 1 || page == 2 ? 74 : 42, 99);
+    lv_obj_remove_event_cb(retryButton, pressed);
+    lv_obj_add_event_cb(retryButton, connectionAction, LV_EVENT_CLICKED, (void *)1);
+  }
+  if (page == 4) button("Voltar as configuracoes", 12, 438, 456, 30, 103);
   lv_scr_load(screen);
   if (old) lv_obj_del(old);
 }
 static void refresh() {
   refreshConnectionOverlay();
   lv_label_set_text(statusLabel, (page == 4 ? wifiScanStatus() : page == 3 && formNotice.length() ? formNotice : mixerStatus()).c_str());
-  color(wifiButton, wifiConnected() ? 0x047857 : 0xB91C1C);
+  uint32_t wifiTint = wifiConnected() ? 0x047857 : 0xB91C1C;
+  uint32_t mixerTint = mixerReady() ? 0x047857 : connectionAttempting() && wifiConnected() ? 0xB45309 : 0xB91C1C;
+  color(wifiButton, wifiTint);
+  if (lv_obj_get_style_bg_grad_color(wifiButton, 0).full != lv_color_hex(mixerTint).full)
+    lv_obj_set_style_bg_grad_color(wifiButton, lv_color_hex(mixerTint), 0);
+  lv_obj_set_style_bg_grad_dir(wifiButton, LV_GRAD_DIR_HOR, 0);
+  lv_obj_set_style_bg_main_stop(wifiButton, 100, 0);
+  lv_obj_set_style_bg_grad_stop(wifiButton, 155, 0);
+  if (page == 6 || page == 9) {
+    for (int i = 0; i < 8; ++i) {
+      setText(colorOptions[i], draftColor == palette[i] ? LV_SYMBOL_OK : "");
+      lv_obj_set_style_border_width(colorOptions[i], draftColor == palette[i] ? 3 : 0, 0);
+      lv_obj_set_style_border_color(colorOptions[i], lv_color_white(), 0);
+    }
+  }
   bool locked = !mixerReady() || mixerBusy();
+  if (retryButton) setText(retryButton, page == 1 || page == 2
+    ? connectionAttempting() ? "Cancelar" : LV_SYMBOL_REFRESH "\nConexao"
+    : connectionAttempting() ? "Cancelar tentativa" : "Tentar conexao novamente");
   if (page == 3) {
     lv_label_set_text(displayIPLabel, ("IP do display: " + displayIP()).c_str());
     lv_label_set_text(gatewayLabel, ("Gateway: " + gatewayIP()).c_str());
-    setText(retryButton, connectionAttempting() ? "Cancelar tentativa" : "Tentar conexao novamente");
+  }
+  if (page == 5) {
+    for (int i = 0; i < 10; ++i) {
+      color(auxButtons[i], draftAux & (1 << i) ? 0x047857 : 0x334155);
+      disabled(auxButtons[i], soloActive || mixerBusy());
+    }
   }
   if (page == 0) {
     const char *names[] = {"VOCAL", "INSTRUMENTOS", "BATERIA", "SEM FIO"};
     for (int i = 0; i < 4; ++i) {
       bool muted = mixerValue("mgmask").toInt() & (1 << i);
       setText(groupButtons[i], String(i + 1) + "  " + names[i] + "\n" + (locked ? "AGUARDE" : muted ? "FECHADO" : "ABERTO"));
-      color(groupButtons[i], locked ? 0x475569 : muted ? 0xB91C1C : 0x047857);
-      disabled(groupButtons[i], locked || soloActive);
+      color(groupButtons[i], muted ? 0x111827 : groupColor(i));
+      lv_obj_set_style_border_width(groupButtons[i], 3, 0);
+      lv_obj_set_style_border_color(groupButtons[i], lv_color_hex(groupColor(i)), 0);
+      disabled(groupButtons[i], !mixerReady());
     }
   }
   if (page == 1 || page == 2) {
@@ -301,13 +395,14 @@ static void refresh() {
       bool known = m.length() && g.length() && f.length();
       bool closed = m.toInt() || ((g.toInt() & mixerValue("mgmask").toInt()) && !f.toInt());
       setText(cells[i], String(i + 1) + "\n" + name);
-      lv_obj_set_height(lv_obj_get_child(cells[i], 0), 32);
-      color(cells[i], page == 2 ? selected[i] ? 0x1D4ED8 : 0x334155 : locked || !known ? 0x475569 : closed ? 0xB91C1C : 0x047857);
-      disabled(cells[i], page == 2 ? soloActive || mixerBusy() : locked || !known || soloActive);
-    }
-    if (page == 2) {
-      setText(soloButton, soloActive ? "ENCERRAR SOLO / RESTAURAR" : "INICIAR SOLO  |  fones 6 e 7");
-      color(soloButton, soloActive ? 0xB45309 : 0x1D4ED8); disabled(soloButton, locked);
+      lv_obj_set_height(lv_obj_get_child(cells[i], 0), 50);
+      uint32_t tint = channelColor(i);
+      bool filled = page == 2 ? selected[i] : known && !closed;
+      color(cells[i], filled ? tint : 0x111827);
+      if (lv_obj_get_style_border_width(cells[i], 0) != 3) lv_obj_set_style_border_width(cells[i], 3, 0);
+      if (lv_obj_get_style_border_color(cells[i], 0).full != lv_color_hex(tint).full)
+        lv_obj_set_style_border_color(cells[i], lv_color_hex(tint), 0);
+      disabled(cells[i], page == 2 ? !mixerReady() : !mixerReady() || !known || selected[i]);
     }
   }
   if (page == 4) {

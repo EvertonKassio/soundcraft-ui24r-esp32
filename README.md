@@ -14,8 +14,8 @@ foi escrito novamente. As pastas de origem permanecem intactas.
   Verde indica grupo desativado; vermelho, grupo ativado. Um grupo aberto
   não remove o mute individual de um canal. Este firmware controla grupos
   de mute, não faders de subgrupos ou VCA.
-- **Canais:** 24 entradas, em uma grade fixa de quatro colunas por seis
-  linhas. Cada botão abre/fecha a entrada, respeitando o estado de mute
+- **Canais:** 24 entradas, em uma grade fixa de cinco colunas por cinco
+  linhas (24 canais e um espaco para configuracao). Cada botão abre/fecha a entrada, respeitando o estado de mute
   individual e grupos. Abrir uma entrada bloqueada pelo grupo usa a
   exceção `forceunmute`, como a interface da mesa. Cinza indica estado
   indisponível; verde aberto; vermelho fechado. Nomes longos são truncados.
@@ -45,7 +45,7 @@ foi escrito novamente. As pastas de origem permanecem intactas.
   (`-1`: em andamento; `-2`: falha; `0`: sem redes), duração e estado Wi-Fi.
   O campo Rede tem o mesmo visual e alinhamento de Senha e IP/host;
   tocá-lo abre a seleção de redes. O ícone superior mede 42 × 42 pixels,
-  com margens superior e direita de 15 pixels.
+  com margens superior e direita de 12 pixels.
   Senha e IP/nome da mesa abrem um editor dedicado sobre a tela, com
   teclado visível e botões Aplicar/Cancelar. Aplicar atualiza o campo;
   o editor de IP usa apenas dígitos, ponto e apagar. O teclado está
@@ -63,34 +63,40 @@ disponível no rodapé; sair da tela de solo não encerra o solo.
 
 ## Comportamento do solo
 
-Conforme solicitado, a mixagem dos fones é preservada: os outros canais
-continuam nos auxs 6/7, e nenhum nível de envio ou volume desses masters
-é alterado. O firmware:
+Na aba Solo, um toque no canal ativa o teste; outro toque restaura apenas
+esse canal. N�o h� sele��o seguida de ativa��o de v�rios canais. Outros
+canais podem ser abertos/fechados na aba Canais durante o teste.
 
-1. Salva em NVS os valores recebidos da mesa antes de enviar alterações.
-2. Muta os masters auxiliares 1–5 e 8–10 globalmente.
-3. Coloca temporariamente os envios dos canais selecionados aos auxs 6/7
-   em pré-fader, para permitir escuta com o main zerado.
-4. Muta os quatro envios de efeitos dos canais selecionados para evitar
-   que esses instrumentos continuem chegando ao main pelos retornos FX.
-5. Zera `i.N.mix` dos selecionados. Não usa o PFL/solo nativo da mesa.
-6. Ao encerrar, restaura tudo em ordem inversa, abrindo os masters
-   auxiliares somente após restaurar os canais.
+Antes de enviar comandos, o estado original � salvo em NVS. O firmware
+zera o main, muta os envios auxiliares fora da sele��o de escuta e os
+quatro envios FX, e s� depois abre o mute da entrada e ativa forceunmute
+para superar grupos de mute. Os auxiliares de escuta s�o considerados
+pr�-fader e seu PRE/POST, n�vel de envio e mute n�o s�o alterados.
+Os masters auxiliares e os demais canais permanecem inalterados.
 
-Não abre entradas que já estavam mutadas, nem os auxs 6/7 se já estavam
-mutados. Um envio originalmente pós-fader passa a pré-fader durante o
-solo; embora seu valor permaneça igual, o nível percebido pode mudar.
-Caudas de efeitos já existentes podem continuar audíveis por algum tempo.
-Roteamentos físicos alternativos, matrix, gravação e subgrupos não são
-reconfigurados pelo firmware.
+O segundo toque restaura em ordem inversa: forceunmute e mute anteriores,
+FX, envios auxiliares e main. Cada canal usa o mesmo transporte em lote
+dos controles normais, com atualiza��o local imediata. A confirma��o da
+restaura��o � acompanhada em segundo plano, sem bloquear outros canais;
+o registro persistente s� � removido ap�s observar os valores restaurados.
+Um novo teste durante essa espera reutiliza o estado original salvo.
+Ap�s desconex�o ou reinicializa��o, os registros restantes s�o restaurados
+quando a mesa volta a fornecer seus par�metros.
 
-O diário só é apagado após confirmação dos valores restaurados. Depois
-de queda de Wi-Fi ou reinicialização, a aplicação tenta reconectar e,
-quando consegue, restaura automaticamente a sessão anterior. Ao esgotar
-o tempo de conexão, use Tentar conexão novamente. Enquanto o ESP32 estiver desligado
-ou sem rede, não pode restaurar a mesa. Não altere externamente os
-parâmetros envolvidos durante o solo: a restauração reaplica o snapshot
-anterior. Configurar outra mesa/rede fica bloqueado durante a sessão.
+O bot�o Auxiliares do solo abre uma sele��o de AUX 1�10, salva em NVS.
+O padr�o � 4, 6, 7 e 8. N�o � permitido mudar a sele��o enquanto houver
+solo ou recupera��o pendente, nem salvar uma sele��o vazia.
+
+Os 24 canais usam uma grade 5 x 5 com botoes de 88 x 74 px.
+Na aba Canais, borda significa fechado e preenchimento significa aberto.
+Na aba Solo, o preenchimento indica teste ativo. As cores sao escolhidas
+somente em Solo > Config. > Cores: toque no canal e escolha na paleta.
+A mesma cor aparece em Canais e Solo e fica salva apos reiniciar.
+
+O fader zerado e os mutes de envio n�o reconfiguram rotas alternativas
+por matrix, grava��o ou patching; verificar essas rotas na mesa antes
+de usar o teste durante o culto. Os envios de fones j� mutados ou zerados
+continuam assim. Caudas de efeitos anteriores podem persistir.
 
 ## Conexão e cancelamento
 
@@ -180,7 +186,7 @@ Primeiro use uma cena de teste e saídas sem amplificação. Confira toque
 nos quatro cantos, SSID salvo após reiniciar, estados atualizados após
 mudar mutes no navegador e as associações dos quatro grupos. Anote níveis
 main, estados dos masters auxiliares, pré/pós e mutes FX antes de testar
-solo com um canal e depois com vários. Confirme áudio nos auxs 6/7,
+solo com um canal e depois com vários. Confirme áudio nos auxs 4/6/7/8,
 silêncio nos outros auxs e restauração exata. Repita interrompendo Wi-Fi
 e reiniciando o ESP32 durante a sessão e durante a restauração.
 
@@ -189,10 +195,10 @@ ou comunicação com uma mesa física.
 
 ## Resultado da compilação
 
-Compilado com sucesso em 04/10/2026 com PlatformIO, plataforma
+Compilado com sucesso em 05/10/2026 com PlatformIO, plataforma
 Espressif32 6.9.0 e as dependências fixadas no `platformio.ini`.
-RAM estática interna: 48.476 bytes (14,8%). Flash da aplicação:
-1.070.773 bytes (34,0% da partição). Objetos LVGL e buffers de desenho
+RAM estática interna: 48.500 bytes (14,8%). Flash da aplicação:
+1.079.537 bytes (34,3% da partição). Objetos LVGL e buffers de desenho
 usam PSRAM. Não foram executados testes na placa ou na mesa.
 
 `bin/firmware.bin` contém apenas a aplicação compilada. Para a primeira
@@ -239,3 +245,25 @@ sua tarefa aguarda comandos em vez de consultar continuamente a fila.
 Referência medida pelo usuário antes desta otimização: 1,15 W com a tela
 acesa e 0,4 W com iluminação apagada. O novo consumo precisa ser medido
 na placa. Não foi alterado o clock da CPU nem suspenso o controlador RGB.
+
+A ativação e a restauração do solo usam o mesmo transporte em lote dos
+controles de canais, em blocos de até 16 alterações. Não aguardam o eco
+individual antes de enviar o próximo comando. O estado recebido continua
+sendo reconciliado pela comunicação. Na restauração, o journal só é
+apagado após observar todos os valores restaurados; a verificação final
+não bloqueia o envio. Se essa verificação não terminar em 4 segundos,
+a conexão é retomada para recuperar o estado e repetir a restauração.
+
+## Configurações unificadas
+
+O botão de conexão no topo abre as abas Wi-Fi, Aux solo, Cor canal e
+Cor grupo. As cores são escolhidas na paleta de oito opções e salvas em
+NVS. A mesma cor de canal é usada em Canais e Solo. Na tela Grupos,
+borda indica grupo mutado; preenchimento indica grupo aberto.
+Os quatro grupos medem 222 x 174 px; reconexão fica abaixo da grade.
+Nas telas Canais e Solo, reconexão ocupa a última posição livre da grade.
+Nas configurações, o botão de reconexão fica na área inferior, separado
+dos campos e da seleção de cores. A busca de redes conserva seus controles
+próprios para não iniciar uma conexão enquanto a varredura estiver ativa.
+
+Nas telas de cores, o rodape tem Voltar e Salvar, sem reconexao. A cor escolhida fica marcada na paleta e so e gravada ao tocar Salvar. Voltar sem salvar descarta a escolha.
