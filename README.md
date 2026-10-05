@@ -198,7 +198,7 @@ ou comunicação com uma mesa física.
 Compilado com sucesso em 05/10/2026 com PlatformIO, plataforma
 Espressif32 6.9.0 e as dependências fixadas no `platformio.ini`.
 RAM estática interna: 48.500 bytes (14,8%). Flash da aplicação:
-1.079.689 bytes (34,3% da partição). Objetos LVGL e buffers de desenho
+1.087.285 bytes (34,6% da partição). Objetos LVGL e buffers de desenho
 usam PSRAM. Não foram executados testes na placa ou na mesa.
 
 `bin/firmware.bin` contém apenas a aplicação compilada. Para a primeira
@@ -273,3 +273,29 @@ Em Aux solo e nas telas de cores, Salvar fica a esquerda em verde e Voltar a dir
 Na aba Wi-Fi, Salvar e conectar fica no final da pagina. Tentar novamente fica no topo, em um botao compacto, e muda para Cancelar tentativa durante a conexao.
 
 Barra principal, abas de configuracao e Tentar novamente usam 108 x 42 px, raio de 6 px e espacamento horizontal de 8 px. Tentar novamente usa duas linhas para manter o texto legivel.
+
+
+## Grupos e canais vis�veis
+
+Configura��es > Grupos re�ne a quantidade (1 a 6), nome e cor dos grupos.
+Use + / - para escolher a quantidade e Salvar para aplicar. Toque em um
+grupo para editar seu nome com o teclado e escolher a cor; Salvar grava
+nome e cor no display. Esses nomes s�o locais; a associa��o de entradas
+aos seis grupos de mute continua sendo configurada na mesa.
+
+Configura��es > Canais re�ne Cores e Visibilidade. Em Visibilidade,
+toque nos n�meros para mostrar/ocultar canais e confirme com Salvar.
+A sele��o vale igualmente para Canais e Solo, sem alterar mute ou
+roteamento da mesa. � necess�rio manter pelo menos um canal vis�vel;
+um canal com solo ativo n�o pode ser ocultado. A grade agrupa os canais
+vis�veis mantendo sua numera��o original. Tudo fica salvo ap�s reiniciar.
+
+
+A grade de Canais e Solo redimensiona linhas, colunas e botoes conforme a
+quantidade visivel, sem rolagem. Configuracoes > Canais > Grupos permite
+incluir atalhos dos grupos de mute na tela Canais. O limite e de 24 botoes
+somando entradas e grupos. Remova entradas antes de incluir grupos se a
+grade estiver cheia. Esses atalhos nao aparecem no Solo. A selecao fica
+salva junto com a visibilidade dos canais.
+
+Ao exceder a selecao de 24 botoes, a configuracao mostra um aviso proprio de limite, independente do estado do Wi-Fi. O icone da mesa usa Ui em negrito e italico. Tocar novamente no status enquanto estiver na aba Wi-Fi retorna a tela operacional anterior.

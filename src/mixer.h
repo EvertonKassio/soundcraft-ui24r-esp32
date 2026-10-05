@@ -41,3 +41,12 @@ void mixerStandby(bool sleeping);
 
 uint32_t groupColor(int group);
 bool saveGroupColor(int group, uint32_t color);
+
+String groupName(int group);
+uint8_t groupCount();
+bool saveGroupName(int group, String name);
+bool saveGroupCount(uint8_t count);
+uint32_t visibleChannelMask();
+bool saveVisibleChannelMask(uint32_t mask);
+
+uint8_t visibleGroupMask();

@@ -19,10 +19,37 @@ static size_t cursor = 0;
 static bool awaiting = false;
 static int restoringChannel = -1;
 static uint16_t headphoneAuxMask = (1 << 3) | (1 << 5) | (1 << 6) | (1 << 7);
-static uint32_t channelColors[24], groupColors[4];
+static uint32_t channelColors[24], groupColors[6];
+static String groupNames[6];
+static uint8_t displayedGroups = 4;
+static uint32_t visibleInputs = 0xFFFFFF;
+String groupName(int group) { return groupNames[group]; }
+uint8_t groupCount() { return displayedGroups; }
+uint32_t visibleChannelMask() { return visibleInputs & 0xFFFFFF; }
+uint8_t visibleGroupMask() { return (visibleInputs >> 24) & 0x3F; }
+bool saveGroupCount(uint8_t count) {
+  if (count < 1 || count > 6 || prefs.putUChar("groupCount", count) != 1) return false;
+  displayedGroups = count; return true;
+}
+bool saveGroupName(int group, String name) {
+  name.trim();
+  if (group < 0 || group >= 6 || !name.length() || name.length() > 32) return false;
+  if (prefs.putString(("gname" + String(group)).c_str(), name) != name.length()) return false;
+  groupNames[group] = name; return true;
+}
+bool saveVisibleChannelMask(uint32_t mask) {
+  mask &= 0x3FFFFFFF;
+  if (__builtin_popcount(mask) > 24) { notice = "Limite de 24 botoes"; return false; }
+  if (!(mask & 0xFFFFFF)) { notice = "Mantenha ao menos um canal visivel"; return false; }
+  for (int i = 0; i < 24; ++i) if (selected[i] && !(mask & (1UL << i))) {
+    notice = "Encerre o solo antes de ocultar o canal"; return false;
+  }
+  if (prefs.putUInt("visibleInputs", mask) != sizeof(mask)) return false;
+  visibleInputs = mask; return true;
+}
 uint32_t groupColor(int group) { return groupColors[group]; }
 bool saveGroupColor(int group, uint32_t color) {
-  if (group < 0 || group >= 4) return false;
+  if (group < 0 || group >= 6) return false;
   if (prefs.putUInt(("gcolor" + String(group)).c_str(), color) != sizeof(color)) return false;
   groupColors[group] = color; return true;
 }
@@ -255,7 +282,7 @@ bool muteChannel(int ch) {
   return sendControls(out);
 }
 bool muteGroup(int group) {
-  if (!mixerReady() || recovery || group < 0 || group > 3) return false;
+  if (!mixerReady() || recovery || group < 0 || group > 5) return false;
   int mask = mixerValue("mgmask").toInt(), bit = 1 << group;
   std::vector<Change> out;
   bool found = false;
@@ -366,7 +393,13 @@ void mixerInit() {
   headphoneAuxMask = prefs.getUShort("soloAux", headphoneAuxMask) & 0x3FF;
   if (!headphoneAuxMask) headphoneAuxMask = (1 << 3) | (1 << 5) | (1 << 6) | (1 << 7);
   for (int i = 0; i < 24; ++i) channelColors[i] = prefs.getUInt(("color" + String(i)).c_str(), defaultColors[i % 6]);
-  for (int i = 0; i < 4; ++i) groupColors[i] = prefs.getUInt(("gcolor" + String(i)).c_str(), defaultColors[i]);
+  for (int i = 0; i < 6; ++i) groupColors[i] = prefs.getUInt(("gcolor" + String(i)).c_str(), defaultColors[i]);
+  const char *names[] = {"VOCAL", "INSTRUMENTOS", "BATERIA", "SEM FIO", "GRUPO 5", "GRUPO 6"};
+  for (int i = 0; i < 6; ++i) groupNames[i] = prefs.getString(("gname" + String(i)).c_str(), names[i]);
+  displayedGroups = prefs.getUChar("groupCount", 4);
+  if (displayedGroups < 1 || displayedGroups > 6) displayedGroups = 4;
+  visibleInputs = prefs.getUInt("visibleInputs", 0xFFFFFF) & 0x3FFFFFFF;
+  if (!visibleInputs) visibleInputs = 0xFFFFFF;
   loadJournal(); WiFi.mode(WIFI_STA); transportInit(); retryConnection();
 }
 String mixerStatus() {
