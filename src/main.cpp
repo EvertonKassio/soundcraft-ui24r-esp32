@@ -58,6 +58,7 @@ static void pressed(lv_event_t *e) {
 static lv_obj_t *button(const char *text, int x, int y, int w, int h, int id) {
   lv_obj_t *o = lv_btn_create(screen);
   lv_obj_set_pos(o, x, y); lv_obj_set_size(o, w, h);
+  lv_obj_set_style_radius(o, 6, 0);
   lv_obj_add_event_cb(o, pressed, LV_EVENT_CLICKED, (void *)(intptr_t)id);
   lv_obj_t *t = lv_label_create(o); lv_label_set_text(t, text);
   lv_obj_set_width(t, w - 12); lv_label_set_long_mode(t, LV_LABEL_LONG_DOT);
@@ -241,23 +242,27 @@ static void show(int next) {
   const char *tabs[] = {"Grupos", "Canais", "Solo"};
   int activeTab = page == 0 ? 0 : page == 1 ? 1 : page == 2 ? 2 : -1;
   for (int i = 0; i < 3; ++i) {
-    lv_obj_t *tab = button(tabs[i], 12 + i * 110, 12, 102, 42, 100 + i);
+    lv_obj_t *tab = button(tabs[i], 12 + i * 116, 12, 108, 42, 100 + i);
     color(tab, activeTab == i ? 0x2563EB : 0x334155);
     lv_obj_set_style_radius(tab, 6, 0);
   }
-  wifiButton = button("", 342, 12, 126, 42, 103);
+  wifiButton = button("", 360, 12, 108, 42, 103);
   lv_obj_set_style_radius(wifiButton, 6, 0);
   lv_obj_set_style_pad_all(wifiButton, 0, 0);
-  wifiIcon = label(wifiButton, LV_SYMBOL_WIFI, 22, 12);
-  mixerIcon = label(wifiButton, LV_SYMBOL_AUDIO, 86, 12);
+  wifiIcon = label(wifiButton, LV_SYMBOL_WIFI, 18, 12);
+  mixerIcon = label(wifiButton, LV_SYMBOL_AUDIO, 72, 12);
   lv_obj_clear_flag(wifiIcon, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_clear_flag(mixerIcon, LV_OBJ_FLAG_CLICKABLE);
-  statusLabel = label(screen, "", 12, page >= 3 && page != 4 ? 110 : 66); lv_obj_set_width(statusLabel, 456);
+  statusLabel = label(screen, "", 12, page >= 3 && page != 4 ? 114 : 66); lv_obj_set_width(statusLabel, page == 3 ? 336 : 456);
   lv_label_set_long_mode(statusLabel, LV_LABEL_LONG_DOT);
+  if (page == 3) {
+    lv_obj_set_height(statusLabel, 42);
+    lv_obj_set_style_pad_top(statusLabel, (42 - lv_font_get_line_height(lv_obj_get_style_text_font(statusLabel, 0))) / 2, 0);
+  }
   if (page < 3 || page == 7) lv_obj_add_flag(statusLabel, LV_OBJ_FLAG_HIDDEN);
   if (page == 0) {
     const char *names[] = {"1  VOCAL", "2  INSTRUMENTOS", "3  BATERIA", "4  SEM FIO"};
-    for (int i = 0; i < 4; ++i) groupButtons[i] = button(names[i], 12 + (i % 2) * 234, 66 + (i / 2) * 180, 222, 174, i);
+    for (int i = 0; i < 4; ++i) groupButtons[i] = button(names[i], 12 + (i % 2) * (224 + 8), 66 + (i / 2) * 180, 224, 172, i);
 
   } else if (page == 1 || page == 2) {
     for (int i = 0; i < 24; ++i) {
@@ -270,20 +275,21 @@ static void show(int next) {
     }
 
   } else if (page == 3) {
-    networkButton = field("Rede", chosenSSID, 136, 32, false);
+    networkButton = field("Rede", chosenSSID, 164, 32, false);
     lv_textarea_set_placeholder_text(networkButton, "Selecionar rede");
     lv_obj_t *networkHit = lv_obj_get_child(screen, -1);
     lv_obj_remove_event_cb(networkHit, edit);
     lv_obj_add_event_cb(networkHit, openNetworks, LV_EVENT_CLICKED, nullptr);
-    passField = field("Senha", draftPassword, 188, 63, true);
+    passField = field("Senha", draftPassword, 216, 63, true);
     lv_textarea_set_placeholder_text(passField, "Vazio sem editar: manter senha");
     lv_obj_add_event_cb(passField, passwordEdited, LV_EVENT_VALUE_CHANGED, nullptr);
-    hostField = field("IP", draftHost, 240, 15, false);
-    lv_obj_t *b = button("Salvar e conectar", 12, 296, 456, 42, 99);
+    hostField = field("IP", draftHost, 268, 15, false);
+    lv_obj_t *b = button("Salvar e conectar", 12, 426, 456, 42, 99);
+    color(b, 0x047857);
     lv_obj_remove_event_cb(b, pressed); lv_obj_add_event_cb(b, save, LV_EVENT_CLICKED, nullptr);
-    label(screen, "IP da mesa: --", 12, 352);
-    displayIPLabel = label(screen, "", 12, 376);
-    gatewayLabel = label(screen, "", 12, 400);
+    label(screen, "IP da mesa: --", 12, 320);
+    displayIPLabel = label(screen, "", 12, 344);
+    gatewayLabel = label(screen, "", 12, 368);
 
   } else if (page == 4) {
     networkPage = 0;
@@ -306,13 +312,13 @@ static void show(int next) {
     const int targets[] = {3, 5, 7, 8};
     int tab = page == 3 ? 0 : page == 5 ? 1 : (page == 6 || page == 7) ? 2 : 3;
     for (int i = 0; i < 4; ++i)
-      color(button(names[i], 12 + i * 116, 66, 108, 36, 100 + targets[i]), i == tab ? 0x2563EB : 0x334155);
+      color(button(names[i], 12 + i * 116, 66, 108, 42, 100 + targets[i]), i == tab ? 0x2563EB : 0x334155);
   }
   if (page == 5) {
     draftAux = soloAuxMask();
     for (int i = 0; i < 10; ++i) auxButtons[i] = button(("AUX " + String(i + 1)).c_str(), 12 + (i % 5) * 93, 152 + (i / 5) * 94, 84, 84, i);
     label(screen, "Selecionados: escuta nos fones", 12, 344);
-    button("Salvar", 12, 374, 456, 40, 40);
+
   } else if (page == 7) {
     for (int i = 0; i < 24; ++i) {
       lv_obj_t *b = button(String(i + 1).c_str(), 12 + (i % 6) * 77, 148 + (i / 6) * 66, 71, 60, i);
@@ -328,9 +334,13 @@ static void show(int next) {
       color(colorOptions[i], palette[i]);
     }
   }
-  if (page >= 5) button("Voltar", 12, 426, 222, 42, page == 6 ? 107 : page == 9 ? 108 : 103);
-  if (page == 6 || page == 7 || page == 8 || page == 9) button("Salvar", 246, 426, 222, 42, 40);
-  else if (page != 4) {
+  if (page >= 5) color(button("Voltar", 246, 426, 222, 42, page == 6 ? 107 : page == 9 ? 108 : 103), 0x475569);
+  if (page >= 5) color(button("Salvar", 12, 426, 222, 42, 40), 0x047857);
+  else if (page == 3) {
+    retryButton = button("Tentar\nnovamente", 360, 114, 108, 42, 99);
+    lv_obj_remove_event_cb(retryButton, pressed);
+    lv_obj_add_event_cb(retryButton, connectionAction, LV_EVENT_CLICKED, (void *)1);
+  } else if (page != 4) {
     retryButton = button(page == 1 || page == 2 ? LV_SYMBOL_REFRESH "\nConexao" : "Tentar conexao novamente",
       page == 1 || page == 2 ? 380 : page >= 5 ? 246 : 12,
       page == 1 || page == 2 ? 386 : 426,
@@ -364,7 +374,7 @@ static void refresh() {
   bool locked = !mixerReady() || mixerBusy();
   if (retryButton) setText(retryButton, page == 1 || page == 2
     ? connectionAttempting() ? "Cancelar" : LV_SYMBOL_REFRESH "\nConexao"
-    : connectionAttempting() ? "Cancelar tentativa" : "Tentar conexao novamente");
+    : page == 3 ? (connectionAttempting() ? "Cancelar\ntentativa" : "Tentar\nnovamente") : connectionAttempting() ? "Cancelar tentativa" : "Tentar conexao novamente");
   if (page == 3) {
     lv_label_set_text(displayIPLabel, ("IP do display: " + displayIP()).c_str());
     lv_label_set_text(gatewayLabel, ("Gateway: " + gatewayIP()).c_str());

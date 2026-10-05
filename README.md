@@ -198,7 +198,7 @@ ou comunicação com uma mesa física.
 Compilado com sucesso em 05/10/2026 com PlatformIO, plataforma
 Espressif32 6.9.0 e as dependências fixadas no `platformio.ini`.
 RAM estática interna: 48.500 bytes (14,8%). Flash da aplicação:
-1.079.537 bytes (34,3% da partição). Objetos LVGL e buffers de desenho
+1.079.689 bytes (34,3% da partição). Objetos LVGL e buffers de desenho
 usam PSRAM. Não foram executados testes na placa ou na mesa.
 
 `bin/firmware.bin` contém apenas a aplicação compilada. Para a primeira
@@ -267,3 +267,9 @@ dos campos e da seleção de cores. A busca de redes conserva seus controles
 próprios para não iniciar uma conexão enquanto a varredura estiver ativa.
 
 Nas telas de cores, o rodape tem Voltar e Salvar, sem reconexao. A cor escolhida fica marcada na paleta e so e gravada ao tocar Salvar. Voltar sem salvar descarta a escolha.
+
+Em Aux solo e nas telas de cores, Salvar fica a esquerda em verde e Voltar a direita em cinza. Essas telas nao possuem botao de reconexao.
+
+Na aba Wi-Fi, Salvar e conectar fica no final da pagina. Tentar novamente fica no topo, em um botao compacto, e muda para Cancelar tentativa durante a conexao.
+
+Barra principal, abas de configuracao e Tentar novamente usam 108 x 42 px, raio de 6 px e espacamento horizontal de 8 px. Tentar novamente usa duas linhas para manter o texto legivel.
