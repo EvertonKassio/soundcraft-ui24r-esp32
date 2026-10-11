@@ -2,11 +2,15 @@
 #include <Arduino.h>
 #include <vector>
 #include <map>
+static constexpr int CHANNEL_COUNT = 26;
+static constexpr uint32_t CHANNEL_MASK = (1UL << CHANNEL_COUNT) - 1;
+String channelPrefix(int ch);
+String channelLabel(int ch);
 
 struct Change { String key, before, after; };
 struct WifiNetwork { String ssid; int32_t rssi; bool secured; };
 extern std::map<String, String> values;
-extern bool selected[24];
+extern bool selected[CHANNEL_COUNT];
 extern bool soloActive;
 void mixerInit();
 void mixerLoop();

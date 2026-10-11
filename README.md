@@ -75,13 +75,11 @@ pr�-fader e seu PRE/POST, n�vel de envio e mute n�o s�o alterados.
 Os masters auxiliares e os demais canais permanecem inalterados.
 
 O segundo toque restaura em ordem inversa: forceunmute e mute anteriores,
-FX, envios auxiliares e main. Cada canal usa o mesmo transporte em lote
-dos controles normais, com atualiza��o local imediata. A confirma��o da
-restaura��o � acompanhada em segundo plano, sem bloquear outros canais;
-o registro persistente s� � removido ap�s observar os valores restaurados.
-Um novo teste durante essa espera reutiliza o estado original salvo.
-Ap�s desconex�o ou reinicializa��o, os registros restantes s�o restaurados
-quando a mesa volta a fornecer seus par�metros.
+FX, envios auxiliares e main. Cada canal usa transporte em lote e atualiza
+o estado local imediatamente, sem esperar confirmacoes da mesa. O diario
+e removido apos enfileirar a restauracao. Em caso de desconexao ou
+reinicializacao antes disso, os registros restantes sao restaurados
+quando a mesa volta a fornecer seus parametros.
 
 O bot�o Auxiliares do solo abre uma sele��o de AUX 1�10, salva em NVS.
 O padr�o � 4, 6, 7 e 8. N�o � permitido mudar a sele��o enquanto houver
@@ -140,9 +138,9 @@ alterações feitas por outros dispositivos. Não há leitura completa a cada
 toque nem reversão por falta de eco do comando. `INIT` é solicitado somente
 ao estabelecer uma conexão; após desconexão, o estado é lido novamente.
 
-O solo e sua restauração enviam comandos um por vez e aguardam confirmação
-`SETD`. Quatro segundos sem confirmação provocam reconexão para preservar
-a recuperação dos valores do solo.
+O solo e sua restauração enviam comandos em lotes, sem aguardar confirmação
+`SETD`. A interface usa o estado solicitado imediatamente. O diário é
+removido após enfileirar a restauração, sem comprovação de execução na mesa.
 Mensagens de medidores não ocupam a fila de parâmetros. Heartbeats recebidos também contam como
 atividade para detectar conexão inativa. O solo não inicia se faltam valores
 necessários para salvar e restaurar. O trecho de `network.txt` fornecido
@@ -293,12 +291,12 @@ vis�veis mantendo sua numera��o original. Tudo fica salvo ap�s reiniciar
 
 A grade de Canais e Solo redimensiona linhas, colunas e botoes conforme a
 quantidade visivel, sem rolagem. Configuracoes > Canais > Grupos permite
-incluir atalhos dos grupos de mute na tela Canais. O limite e de 24 botoes
+incluir atalhos dos grupos de mute na tela Canais. O limite e de 32 botoes
 somando entradas e grupos. Remova entradas antes de incluir grupos se a
 grade estiver cheia. Esses atalhos nao aparecem no Solo. A selecao fica
 salva junto com a visibilidade dos canais.
 
-Ao exceder a selecao de 24 botoes, a configuracao mostra um aviso proprio de limite, independente do estado do Wi-Fi. O icone da mesa usa Ui em negrito e italico. Tocar novamente no status enquanto estiver na aba Wi-Fi retorna a tela operacional anterior.
+Ao exceder a selecao de 32 botoes, a configuracao mostra um aviso proprio de limite, independente do estado do Wi-Fi. O icone da mesa usa Ui em negrito e italico. Tocar novamente no status enquanto estiver na aba Wi-Fi retorna a tela operacional anterior.
 
 
 ## LVGL 9.6.0
@@ -309,3 +307,7 @@ O widget Tabview, Flex e Grid estao habilitados em include/lv_conf.h.
 A atualizacao habilita abas nativas sem reorganizar as telas atuais.
 Apos gravar, validar desenho, cores, teclado, toque e despertar na placa.
 Referencia: https://github.com/lvgl/lvgl/releases/tag/v9.6.0
+
+## Canais de linha L0 e L1
+
+L0 e L1 correspondem a l.0 e l.1 no protocolo. Estao disponiveis nas abas Canais e Solo, com mute, cores e visibilidade configuraveis. A grade suporta ate 26 canais e seis atalhos de grupos. As configuracoes antigas de visibilidade sao preservadas e os dois canais de linha aparecem por padrao.

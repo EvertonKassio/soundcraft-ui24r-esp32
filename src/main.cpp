@@ -6,7 +6,7 @@
 
 static lv_obj_t *rootScreen, *tabview;
 static constexpr int TAB_HEIGHT = 60;
-static lv_obj_t *screen, *statusLabel, *cells[24], *groupButtons[6], *soloButton;
+static lv_obj_t *screen, *statusLabel, *cells[CHANNEL_COUNT], *groupButtons[6], *soloButton;
 static lv_obj_t *wifiIcon, *mixerIcon;
 static lv_obj_t *wifiButton, *networkButton, *passField, *hostField, *keyboard;
 static lv_obj_t *editorOverlay, *editorField, *editedField;
@@ -31,7 +31,7 @@ static int contentTop = TAB_HEIGHT;
 static int visibilityMode = 1;
 static lv_obj_t *channelGroups[6];
 static bool compactGrid;
-static lv_obj_t *groupNameField, *channelSettings[24];
+static lv_obj_t *groupNameField, *channelSettings[CHANNEL_COUNT];
 static lv_obj_t *colorOptions[8];
 static const uint32_t palette[] = {0xB23535,0xB29D35,0x5FB235,0x35B274,0x3588B2,0x4A35B2,0xB235B2,0x7F7F7F};
 static const char *ipKeys[] = {"1", "2", "3", "\n", "4", "5", "6", "\n", "7", "8", "9", "\n", ".", "0", LV_SYMBOL_BACKSPACE, ""};
@@ -49,13 +49,13 @@ static void pressed(lv_event_t *e) {
     refresh(); return;
   }
   if (page == 7 && id < 100) {
-    if (id < 24) {
+    if (id < CHANNEL_COUNT) {
       if (visibilityMode) {
-        int bit = visibilityMode == 2 ? id + 24 : id;
-        if (bit >= 30 || (visibilityMode == 2 && id >= 6)) return;
+        int bit = visibilityMode == 2 ? id + CHANNEL_COUNT : id;
+        if (bit >= 32 || (visibilityMode == 2 && id >= 6)) return;
         uint32_t target = draftVisible ^ (1UL << bit);
-        if (__builtin_popcount(target) <= 24) { draftVisible = target; visibilityNotice = ""; lv_obj_set_hidden(statusLabel, true); }
-        else { visibilityNotice = "Limite de 24 botoes: canais + grupos"; lv_obj_set_pos(statusLabel, 12, 408 - contentTop); lv_obj_set_hidden(statusLabel, false); }
+        if (__builtin_popcount(target) <= 32) { draftVisible = target; visibilityNotice = ""; lv_obj_set_hidden(statusLabel, true); }
+        else { visibilityNotice = "Limite de 32 botoes: canais + grupos"; lv_obj_set_pos(statusLabel, 12, 408 - contentTop); lv_obj_set_hidden(statusLabel, false); }
         refresh();
       }
       else { colorChannel = id; show(6); }
@@ -88,7 +88,7 @@ static void pressed(lv_event_t *e) {
   if (page == 0) muteGroup(id);
   if (page == 1) { if (id >= 60 && id < 66) muteGroup(id - 60); else muteChannel(id); }
   if (page == 2) {
-    if (id < 24) toggleSolo(id);
+    if (id < CHANNEL_COUNT) toggleSolo(id);
   }
   refresh();
 }
@@ -345,7 +345,7 @@ static void show(int next) {
   if (next == 3 && page != 3 && page != 4) {
     chosenSSID = wifiSSID(); draftPassword = ""; draftHost = mixerHost(); keepPassword = true; formNotice = "";
   }
-  if (next == 7 && page != 6 && page != 7) draftVisible = visibleChannelMask() | ((uint32_t)visibleGroupMask() << 24);
+  if (next == 7 && page != 6 && page != 7) draftVisible = visibleChannelMask() | ((uint32_t)visibleGroupMask() << CHANNEL_COUNT);
   if (next == 8 && page != 8 && page != 9) draftGroupMask = groupDisplayMask();
   if (next == 6) draftColor = channelColor(colorChannel);
   if (next == 9) draftColor = groupColor(colorChannel);
@@ -449,12 +449,12 @@ static void show(int next) {
     int count = __builtin_popcount(visibleChannelMask());
     if (page == 1) count += __builtin_popcount(visibleGroupMask());
     compactGrid = count <= 20;
-    int columns = count <= 4 ? 2 : count <= 9 ? 3 : count <= 16 ? 4 : 5;
+    int columns = count <= 4 ? 2 : count <= 9 ? 3 : count <= 16 ? 4 : count <= 25 ? 5 : 6;
     int rows = (count + columns - 1) / columns;
     int width = (456 - (columns - 1) * 6) / columns;
     int height = ((compactGrid ? 350 : 394) - (rows - 1) * 6) / rows;
     int slot = 0;
-    for (int i = 0; i < 24; ++i) {
+    for (int i = 0; i < CHANNEL_COUNT; ++i) {
       cells[i] = nullptr;
       if (!(visibleChannelMask() & (1UL << i))) continue;
       cells[i] = button("", PAGE_MARGIN + (slot % columns) * (width + 6), 66 + (slot / columns) * (height + 6), width, height, i);
@@ -527,10 +527,10 @@ static void show(int next) {
 
   } else if (page == 7) {
     settingsSubview(true);
-    for (int i = 0; i < (visibilityMode == 2 ? 6 : 24); ++i)
-      channelSettings[i] = button(String(i + 1).c_str(), visibilityMode == 2 ? 12 + (i % 2) * 234 : 12 + (i % 6) * 77,
-        visibilityMode == 2 ? 116 + (i / 2) * 96 : 116 + (i / 6) * 73,
-        visibilityMode == 2 ? 222 : 71, visibilityMode == 2 ? 90 : 67, i);
+    for (int i = 0; i < (visibilityMode == 2 ? 6 : CHANNEL_COUNT); ++i)
+      channelSettings[i] = button(channelLabel(i).c_str(), visibilityMode == 2 ? 12 + (i % 2) * 234 : 12 + (i % 6) * 77,
+        visibilityMode == 2 ? 116 + (i / 2) * 96 : 116 + (i / 6) * 58,
+        visibilityMode == 2 ? 222 : 71, visibilityMode == 2 ? 90 : 52, i);
   } else if (page == 8) {
     lv_obj_set_hidden(statusLabel, true);
     settingsSubview(false);
@@ -610,13 +610,13 @@ static void refresh() {
     }
   }
   if (page == 7) {
-    for (int i = 0; i < (visibilityMode == 2 ? 6 : 24); ++i) {
+    for (int i = 0; i < (visibilityMode == 2 ? 6 : CHANNEL_COUNT); ++i) {
       uint32_t tint = visibilityMode == 2 ? groupColor(i) : channelColor(i);
-      bool shown = draftVisible & (1UL << (visibilityMode == 2 ? i + 24 : i));
+      bool shown = draftVisible & (1UL << (visibilityMode == 2 ? i + CHANNEL_COUNT : i));
       color(channelSettings[i], !visibilityMode || shown ? tint : 0x111827);
       lv_obj_set_style_border_width(channelSettings[i], 2, 0);
       lv_obj_set_style_border_color(channelSettings[i], lv_color_hex(tint), 0);
-      setText(channelSettings[i], (visibilityMode == 2 ? groupName(i) : String(i + 1)) + (visibilityMode ? shown ? "\nVisivel" : "\nOculto" : ""));
+      setText(channelSettings[i], (visibilityMode == 2 ? groupName(i) : channelLabel(i)) + (visibilityMode ? shown ? "\nVisivel" : "\nOculto" : ""));
     }
   }
   if (page == 0) {
@@ -639,15 +639,15 @@ static void refresh() {
     disabled(channelGroups[i], !mixerReady());
   }
   if (page == 1 || page == 2) {
-    for (int i = 0; i < 24; ++i) {
+    for (int i = 0; i < CHANNEL_COUNT; ++i) {
       if (!cells[i]) continue;
-      String base = "i." + String(i) + ".";
+      String base = channelPrefix(i);
       String name = mixerValue(base + "name");
       if (!name.length()) name = values.find(base + "name") == values.end() ? "..." : "Sem nome";
       String m = mixerValue(base + "mute"), g = mixerValue(base + "mgmask"), f = mixerValue(base + "forceunmute");
       bool known = m.length() && g.length() && f.length();
       bool closed = m.toInt() || ((g.toInt() & mixerValue("mgmask").toInt()) && !f.toInt());
-      setText(cells[i], String(i + 1) + "\n" + name);
+      setText(cells[i], channelLabel(i) + "\n" + name);
       lv_obj_set_height(lv_obj_get_child(cells[i], 0), 50);
       uint32_t tint = channelColor(i);
       bool filled = page == 2 ? selected[i] : known && !closed;

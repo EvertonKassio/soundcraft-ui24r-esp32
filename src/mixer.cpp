@@ -5,22 +5,23 @@
 #include <Preferences.h>
 #include <cmath>
 #include <algorithm>
+String channelPrefix(int ch) { return ch < 24 ? "i." + String(ch) + "." : "l." + String(ch - 24) + "."; }
+String channelLabel(int ch) { return ch < 24 ? String(ch + 1) : "L" + String(ch - 24); }
 
 std::map<String, String> values;
-bool selected[24] = {};
+bool selected[CHANNEL_COUNT] = {};
 bool soloActive = false;
 static Preferences prefs;
 static String ssid, password, host, notice;
 static bool connected = false, restoring = false, recovery = false;
 static uint32_t lastRx, sentAt;
 static std::vector<Change> journal, queue;
-static std::map<String, String> restoredEchoes;
 static std::map<int, std::vector<Change>> pendingRestores;
 static size_t cursor = 0;
 static bool awaiting = false;
 static int restoringChannel = -1;
 static uint16_t headphoneAuxMask = (1 << 3) | (1 << 5) | (1 << 6) | (1 << 7);
-static uint32_t channelColors[24], groupColors[6];
+static uint32_t channelColors[CHANNEL_COUNT], groupColors[6];
 static String groupNames[6];
 static uint8_t displayedGroups = 4;
 static uint8_t displayedGroupMask = 0x0F;
@@ -30,11 +31,11 @@ bool saveGroupDisplayMask(uint8_t mask) {
   if (!mask || prefs.putUChar("groupMask", mask) != 1) return false;
   displayedGroupMask = mask; return true;
 }
-static uint32_t visibleInputs = 0xFFFFFF;
+static uint32_t visibleInputs = CHANNEL_MASK;
 String groupName(int group) { return groupNames[group]; }
 uint8_t groupCount() { return displayedGroups; }
-uint32_t visibleChannelMask() { return visibleInputs & 0xFFFFFF; }
-uint8_t visibleGroupMask() { return (visibleInputs >> 24) & 0x3F; }
+uint32_t visibleChannelMask() { return visibleInputs & CHANNEL_MASK; }
+uint8_t visibleGroupMask() { return (visibleInputs >> CHANNEL_COUNT) & 0x3F; }
 bool saveGroupCount(uint8_t count) {
   if (count < 1 || count > 6 || prefs.putUChar("groupCount", count) != 1) return false;
   displayedGroups = count; return true;
@@ -46,13 +47,12 @@ bool saveGroupName(int group, String name) {
   groupNames[group] = name; return true;
 }
 bool saveVisibleChannelMask(uint32_t mask) {
-  mask &= 0x3FFFFFFF;
-  if (__builtin_popcount(mask) > 24) { notice = "Limite de 24 botoes"; return false; }
-  if (!(mask & 0xFFFFFF)) { notice = "Mantenha ao menos um canal visivel"; return false; }
-  for (int i = 0; i < 24; ++i) if (selected[i] && !(mask & (1UL << i))) {
+  // All 32 bits represent channels and groups.
+  if (!(mask & CHANNEL_MASK)) { notice = "Mantenha ao menos um canal visivel"; return false; }
+  for (int i = 0; i < CHANNEL_COUNT; ++i) if (selected[i] && !(mask & (1UL << i))) {
     notice = "Encerre o solo antes de ocultar o canal"; return false;
   }
-  if (prefs.putUInt("visibleInputs", mask) != sizeof(mask)) return false;
+  if (prefs.putUInt("visibleInputs26", mask) != sizeof(mask)) return false;
   visibleInputs = mask; return true;
 }
 uint32_t groupColor(int group) { return groupColors[group]; }
@@ -71,12 +71,12 @@ bool saveSoloAuxMask(uint16_t mask) {
 }
 uint32_t channelColor(int ch) { return channelColors[ch]; }
 bool saveChannelColor(int ch, uint32_t color) {
-  if (ch < 0 || ch >= 24) return false;
+  if (ch < 0 || ch >= CHANNEL_COUNT) return false;
   if (prefs.putUInt(("color" + String(ch)).c_str(), color) != sizeof(color)) return false;
   channelColors[ch] = color; return true;
 }
 static bool journalHasChannel(int ch) {
-  String prefix = "i." + String(ch) + ".";
+  String prefix = channelPrefix(ch);
   for (const auto &c : journal) if (c.key.startsWith(prefix)) return true;
   return false;
 }
@@ -220,14 +220,14 @@ String mixerValue(const String &key) {
   auto it = values.find(key);
   return it == values.end() ? String() : it->second;
 }
-static String ik(int ch, const String &suffix) { return "i." + String(ch) + "." + suffix; }
+static String ik(int ch, const String &suffix) { return channelPrefix(ch) + suffix; }
 static bool same(const String &a, const String &b) {
   return a.length() && b.length() && fabs(a.toDouble() - b.toDouble()) < 0.000001;
 }
 static bool track(const String &key) {
   if (key == "mgmask") return true;
-  for (int i = 0; i < 24; ++i) {
-    String p = "i." + String(i) + ".";
+  for (int i = 0; i < CHANNEL_COUNT; ++i) {
+    String p = channelPrefix(i);
     if (!key.startsWith(p)) continue;
     String s = key.substring(p.length());
     for (int a = 0; a < 10; ++a)
@@ -262,7 +262,6 @@ static void parse(const String &data) {
     val.trim();
     if (track(key)) {
       values[key] = val;
-      if (restoring || !pendingRestores.empty()) restoredEchoes[key] = val;
     }
 
     pos = end;
@@ -302,7 +301,9 @@ static bool sendControls(const std::vector<Change> &changes) {
   notice = ""; return true;
 }
 bool muteChannel(int ch) {
-  if (!mixerReady() || recovery || ch < 0 || ch >= 24 || selected[ch] || (journalHasChannel(ch) && !pendingRestores.count(ch))) return false;
+  // The recovery journal can outlive an active solo when the mixer does not
+  // echo writes. Only an active selection or recovery may block this channel.
+  if (!mixerReady() || recovery || ch < 0 || ch >= CHANNEL_COUNT || selected[ch]) return false;
   String mute = mixerValue(ik(ch, "mute")), mask = mixerValue(ik(ch, "mgmask"));
   String force = mixerValue(ik(ch, "forceunmute"));
   if (!mute.length() || !mask.length() || !force.length()) return false;
@@ -312,21 +313,24 @@ bool muteChannel(int ch) {
   if (!add(out, ik(ch, "mute"), closed ? "0" : "1") ||
       !add(out, ik(ch, "forceunmute"), closed && grouped ? "1" : "0")) return false;
   // An inactive solo may still await echoes; normal channel controls must work.
-  auto previousJournal = journal;
   auto previousPending = pendingRestores;
+  if (journalHasChannel(ch) && !pendingRestores.count(ch)) {
+    String prefix = channelPrefix(ch);
+    for (const auto &saved : journal) if (saved.key.startsWith(prefix))
+      pendingRestores[ch].push_back({saved.key, saved.after, saved.before});
+  }
   if (pendingRestores.count(ch)) {
     for (const auto &change : out) {
-      for (auto &saved : journal) if (saved.key == change.key) saved.before = change.after;
       for (auto &pending : pendingRestores[ch]) if (pending.key == change.key) {
         pending.before = change.before; pending.after = change.after;
-        restoredEchoes.erase(change.key);
       }
     }
-    if (!persistJournal()) { journal = previousJournal; pendingRestores = previousPending; return false; }
+    // Normal mute controls must not rewrite flash on every tap. The persistent
+    // journal retains the original pre-solo snapshot for crash recovery;
+    // only the live restore target follows subsequent channel controls.
   }
   if (sendControls(out)) return true;
-  journal = previousJournal; pendingRestores = previousPending;
-  if (!persistJournal()) recovery = true;
+  pendingRestores = previousPending;
   return false;
 }
 bool muteGroup(int group) {
@@ -334,7 +338,7 @@ bool muteGroup(int group) {
   int mask = mixerValue("mgmask").toInt(), bit = 1 << group;
   std::vector<Change> out;
   bool found = false;
-  for (int i = 0; i < 24; ++i) {
+  for (int i = 0; i < CHANNEL_COUNT; ++i) {
     String membership = mixerValue(ik(i, "mgmask"));
     if (!membership.length()) { notice = "Aguardando grupos dos canais"; return false; }
     if (membership.toInt() & bit) {
@@ -347,13 +351,12 @@ bool muteGroup(int group) {
   return sendControls(out);
 }
 bool toggleSolo(int ch) {
-  if (!mixerReady() || recovery || ch < 0 || ch >= 24) return false;
+  if (!mixerReady() || recovery || ch < 0 || ch >= CHANNEL_COUNT) return false;
   if (journalHasChannel(ch) && selected[ch]) {
     std::vector<Change> changes;
-    String prefix = "i." + String(ch) + ".";
+    String prefix = channelPrefix(ch);
     for (auto it = journal.rbegin(); it != journal.rend(); ++it)
       if (it->key.startsWith(prefix)) changes.push_back({it->key, mixerValue(it->key), it->before});
-    for (const auto &c : changes) restoredEchoes.erase(c.key);
     if (!sendControls(changes)) return false;
     pendingRestores[ch] = changes;
     selected[ch] = false;
@@ -369,8 +372,8 @@ bool toggleSolo(int ch) {
   // Auxes are already pre-fader. Do not change pre/post or send levels.
   if (!add(out, ik(ch, "mute"), "0") || !add(out, ik(ch, "forceunmute"), "1")) return false;
   auto previous = journal;
-  // A new tap during an unconfirmed restore reuses the original snapshot.
-  String prefix = "i." + String(ch) + ".";
+  // A new tap before journal cleanup reuses the original snapshot.
+  String prefix = channelPrefix(ch);
   for (auto &c : out) for (const auto &old : previous)
     if (old.key == c.key) { c.before = old.before; break; }
   journal.erase(std::remove_if(journal.begin(), journal.end(), [&](const Change &c) { return c.key.startsWith(prefix); }), journal.end());
@@ -391,7 +394,6 @@ bool stopSolo() {
   // Reverse order: restore the main, FX, headphone modes and other input sends.
   for (auto it = journal.rbegin(); it != journal.rend(); ++it)
     queue.push_back({it->key, it->after, it->before});
-  restoredEchoes.clear();
   cursor = 0; restoring = true; recovery = false; notice = "Restaurando..."; return true;
 }
 static void disconnected() {
@@ -440,7 +442,7 @@ void mixerInit() {
   ssid = config.substring(0, a); password = config.substring(a + 1, b); host = config.substring(b + 1);
   headphoneAuxMask = prefs.getUShort("soloAux", headphoneAuxMask) & 0x3FF;
   if (!headphoneAuxMask) headphoneAuxMask = (1 << 3) | (1 << 5) | (1 << 6) | (1 << 7);
-  for (int i = 0; i < 24; ++i) channelColors[i] = prefs.getUInt(("color" + String(i)).c_str(), defaultColors[i % 6]);
+  for (int i = 0; i < CHANNEL_COUNT; ++i) channelColors[i] = prefs.getUInt(("color" + String(i)).c_str(), defaultColors[i % 6]);
   for (int i = 0; i < 6; ++i) groupColors[i] = prefs.getUInt(("gcolor" + String(i)).c_str(), defaultColors[i]);
   const char *names[] = {"VOCAL", "INSTRUMENTOS", "BATERIA", "SEM FIO", "GRUPO 5", "GRUPO 6"};
   for (int i = 0; i < 6; ++i) groupNames[i] = prefs.getString(("gname" + String(i)).c_str(), names[i]);
@@ -448,8 +450,9 @@ void mixerInit() {
   if (displayedGroups < 1 || displayedGroups > 6) displayedGroups = 4;
   displayedGroupMask = prefs.getUChar("groupMask", (1 << displayedGroups) - 1) & 0x3F;
   if (!displayedGroupMask) displayedGroupMask = 0x0F;
-  visibleInputs = prefs.getUInt("visibleInputs", 0xFFFFFF) & 0x3FFFFFFF;
-  if (!visibleInputs) visibleInputs = 0xFFFFFF;
+  uint32_t legacyVisible = prefs.getUInt("visibleInputs", 0xFFFFFF);
+  visibleInputs = prefs.getUInt("visibleInputs26", (legacyVisible & 0xFFFFFF) | (3UL << 24) | ((legacyVisible >> 24) << CHANNEL_COUNT));
+  if (!visibleInputs) visibleInputs = CHANNEL_MASK;
   WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
     Serial.printf("[wifi] desconectado: motivo=%u\n", info.wifi_sta_disconnected.reason);
   }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
@@ -460,7 +463,7 @@ String mixerStatus() {
   if (connection == Connection::Paused) return notice;
   if (WiFi.status() != WL_CONNECTED) return "Wi-Fi desconectado";
   if (!connected) return "Conectando a mesa...";
-  if (mixerBusy()) return restoring ? "Restaurando valores..." : recovery ? "Recuperando solo..." : "Aguardando confirmacao...";
+  if (mixerBusy()) return restoring ? "Restaurando valores..." : recovery ? "Recuperando solo..." : "Enviando comandos...";
   if (notice.length()) return notice;
   return mixerReady() ? soloActive ? "SOLO ATIVO | toque para restaurar" : "Mesa conectada" : "Sincronizando...";
 }
@@ -494,14 +497,11 @@ void mixerLoop() {
     Serial.printf("[mesa-net] reconectando: websocket=%d sem recepcao ha %lu ms\n", connected, (unsigned long)(now - lastRx));
     retryConnection(); return;
   }
-  // Confirm completed channel restores independently; never lock other inputs.
+  // Restore commands have already been accepted by the transport. Like normal
+  // controls, complete optimistically without waiting for echoes from the mixer.
   for (auto it = pendingRestores.begin(); it != pendingRestores.end();) {
-    bool complete = true;
-    for (const auto &c : it->second)
-      if (!same(c.before, c.after) && !same(restoredEchoes[c.key], c.after)) { complete = false; break; }
-    if (!complete) { ++it; continue; }
     auto previous = journal;
-    String prefix = "i." + String(it->first) + ".";
+    String prefix = channelPrefix(it->first);
     journal.erase(std::remove_if(journal.begin(), journal.end(), [&](const Change &c) { return c.key.startsWith(prefix); }), journal.end());
     if (!persistJournal()) { journal = previous; ++it; continue; }
     it = pendingRestores.erase(it); soloActive = !journal.empty();
@@ -509,19 +509,12 @@ void mixerLoop() {
   if (recovery && mixerReady()) { stopSolo(); }
   if (!connected || queue.empty()) return;
   if (cursor >= queue.size()) {
-    // Restoration is sent without per-command waits, but keep the persistent
-    // journal until the entire restored state has been observed from the mixer.
+    // Finish once every command is queued, without waiting for confirmation.
     if (restoring) {
-      bool complete = true;
-      for (const auto &c : queue)
-        if (!same(c.before, c.after) && !same(restoredEchoes[c.key], c.after)) { complete = false; break; }
-      if (!complete) {
-        if (now - sentAt > 4000) notice = "Restauracao pendente; aguardando a mesa";
-        return;
-      }
+      for (const auto &c : queue) values[c.key] = c.after;
       auto previous = journal;
       if (restoringChannel >= 0) {
-        String prefix = "i." + String(restoringChannel) + ".";
+        String prefix = channelPrefix(restoringChannel);
         journal.erase(std::remove_if(journal.begin(), journal.end(), [&](const Change &c) { return c.key.startsWith(prefix); }), journal.end());
       } else journal.clear();
       if (!persistJournal()) { journal = previous; notice = "Falha ao salvar recuperacao"; return; }
