@@ -1,5 +1,6 @@
 #include "mixer.h"
 #include <WiFi.h>
+#include <esp_wifi.h>
 #include "transport.h"
 #include <Preferences.h>
 #include <cmath>
@@ -83,6 +84,7 @@ static bool journalHasChannel(int ch) {
 static bool radioSleeping = false;
 static bool scanning = false;
 static bool scanQueued = false;
+static bool scanRadioRestart = false;
 static uint32_t scanStartAt = 0;
 static uint32_t scanSessionAt = 0, scanPassAt = 0;
 static uint8_t scanAttempts = 0;
@@ -147,12 +149,17 @@ String wifiScanStatus() { return scanNotice; }
 const std::vector<WifiNetwork> &wifiNetworks() { return networks; }
 void wifiStartScan() {
   if (scanning) return;
+  esp_wifi_scan_stop();
   WiFi.scanDelete();
   scanAttempts = 0;
   // A user-requested scan exclusively owns the radio: stop mixer transport,
   // connection attempts and the current Wi-Fi link without erasing credentials.
   cancelConnection();
   WiFi.disconnect(false, false);
+  // Cancel driver-level association/scan state, not just Arduino's result cache.
+  WiFi.mode(WIFI_OFF);
+  radioSleeping = false;
+  scanRadioRestart = true;
   scanQueued = true; scanning = true; scanStartAt = millis();
   scanSessionAt = scanStartAt;
   scanNotice = "Preparando busca de redes...";
@@ -160,21 +167,33 @@ void wifiStartScan() {
 }
 static void pollScan() {
   if (!scanning) return;
+  int count = WIFI_SCAN_RUNNING;
   if (scanQueued) {
+    if (scanRadioRestart) {
+      if (millis() - scanStartAt < 300) return;
+      if (!WiFi.mode(WIFI_STA)) { scanNotice = "Falha ao iniciar Wi-Fi"; scanning = false; return; }
+      WiFi.setAutoReconnect(false);
+      scanRadioRestart = false; scanStartAt = millis();
+      return;
+    }
     if (millis() - scanStartAt < 700) return;
     scanQueued = false;
     ++scanAttempts;
     scanNotice = "Buscando redes... " + String(scanAttempts) + "/" + SCAN_MAX_ATTEMPTS;
     scanPassAt = millis();
-    int result = WiFi.scanNetworks(true, false, false, SCAN_CHANNEL_MS);
+    int result = WiFi.scanNetworks(true, false, true, SCAN_CHANNEL_MS, 0);
     Serial.printf("[wifi-scan] tentativa=%u inicio=%d wifi=%d\n", scanAttempts, result, (int)WiFi.status());
     if (result == WIFI_SCAN_RUNNING) return;
-  }
-  int count = WiFi.scanComplete();
+    // A failed start is a failure, never a completed scan of zero networks.
+    count = result;
+  } else count = WiFi.scanComplete();
   if (count == WIFI_SCAN_RUNNING) return;
   Serial.printf("[wifi-scan] tentativa=%u resultado=%d duracao=%lu ms wifi=%d\n", scanAttempts, count, (unsigned long)(millis() - scanPassAt), (int)WiFi.status());
   if (count <= 0 && scanAttempts < SCAN_MAX_ATTEMPTS) {
-    WiFi.scanDelete(); scanQueued = true; scanStartAt = millis();
+    esp_wifi_scan_stop();
+    WiFi.scanDelete();
+    WiFi.mode(WIFI_OFF);
+    scanRadioRestart = true; scanQueued = true; scanStartAt = millis();
     scanNotice = "Repetindo busca... " + String(scanAttempts + 1) + "/" + SCAN_MAX_ATTEMPTS;
     return;
   }
@@ -193,6 +212,7 @@ static void pollScan() {
   }
   std::sort(networks.begin(), networks.end(), [](const WifiNetwork &a, const WifiNetwork &b) { return a.rssi > b.rssi; });
   scanNotice = count < 0 ? "Falha na busca. Tente novamente." : networks.empty() ? "Nenhuma rede encontrada" : String(networks.size()) + " redes encontradas";
+  esp_wifi_scan_stop();
   WiFi.scanDelete();
 }
 
@@ -282,7 +302,7 @@ static bool sendControls(const std::vector<Change> &changes) {
   notice = ""; return true;
 }
 bool muteChannel(int ch) {
-  if (!mixerReady() || recovery || ch < 0 || ch >= 24 || journalHasChannel(ch)) return false;
+  if (!mixerReady() || recovery || ch < 0 || ch >= 24 || selected[ch] || (journalHasChannel(ch) && !pendingRestores.count(ch))) return false;
   String mute = mixerValue(ik(ch, "mute")), mask = mixerValue(ik(ch, "mgmask"));
   String force = mixerValue(ik(ch, "forceunmute"));
   if (!mute.length() || !mask.length() || !force.length()) return false;
@@ -291,7 +311,23 @@ bool muteChannel(int ch) {
   std::vector<Change> out;
   if (!add(out, ik(ch, "mute"), closed ? "0" : "1") ||
       !add(out, ik(ch, "forceunmute"), closed && grouped ? "1" : "0")) return false;
-  return sendControls(out);
+  // An inactive solo may still await echoes; normal channel controls must work.
+  auto previousJournal = journal;
+  auto previousPending = pendingRestores;
+  if (pendingRestores.count(ch)) {
+    for (const auto &change : out) {
+      for (auto &saved : journal) if (saved.key == change.key) saved.before = change.after;
+      for (auto &pending : pendingRestores[ch]) if (pending.key == change.key) {
+        pending.before = change.before; pending.after = change.after;
+        restoredEchoes.erase(change.key);
+      }
+    }
+    if (!persistJournal()) { journal = previousJournal; pendingRestores = previousPending; return false; }
+  }
+  if (sendControls(out)) return true;
+  journal = previousJournal; pendingRestores = previousPending;
+  if (!persistJournal()) recovery = true;
+  return false;
 }
 bool muteGroup(int group) {
   if (!mixerReady() || recovery || group < 0 || group > 5) return false;
@@ -316,7 +352,7 @@ bool toggleSolo(int ch) {
     std::vector<Change> changes;
     String prefix = "i." + String(ch) + ".";
     for (auto it = journal.rbegin(); it != journal.rend(); ++it)
-      if (it->key.startsWith(prefix)) changes.push_back({it->key, it->after, it->before});
+      if (it->key.startsWith(prefix)) changes.push_back({it->key, mixerValue(it->key), it->before});
     for (const auto &c : changes) restoredEchoes.erase(c.key);
     if (!sendControls(changes)) return false;
     pendingRestores[ch] = changes;

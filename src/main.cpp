@@ -11,6 +11,7 @@ static lv_obj_t *wifiIcon, *mixerIcon;
 static lv_obj_t *wifiButton, *networkButton, *passField, *hostField, *keyboard;
 static lv_obj_t *editorOverlay, *editorField, *editedField;
 static lv_obj_t *connectionOverlay, *connectionLabel, *displayIPLabel, *gatewayLabel, *mixerIPLabel, *retryButton;
+static lv_obj_t *manualSSIDButton;
 static lv_obj_t *networkRows[6], *networkPager, *previousNetworks, *nextNetworks, *scanButton, *emptyNetworks;
 static String chosenSSID, draftPassword, draftHost;
 static int networkPage = 0;
@@ -162,6 +163,11 @@ static void closeEditor(bool accept) {
   if (!editorOverlay) return;
   if (accept && editedField && String(lv_textarea_get_text(editedField)) != lv_textarea_get_text(editorField))
     lv_textarea_set_text(editedField, lv_textarea_get_text(editorField));
+  if (accept && editedField == networkButton) {
+    String entered = lv_textarea_get_text(editedField);
+    if (entered != chosenSSID) { keepPassword = false; draftPassword = ""; lv_textarea_set_text(passField, ""); }
+    chosenSSID = entered; formNotice = "";
+  }
   lv_keyboard_set_textarea(keyboard, nullptr);
   lv_obj_delete(editorOverlay);
   editorOverlay = nullptr; editorField = nullptr; editedField = nullptr; keyboard = nullptr;
@@ -174,9 +180,9 @@ static void keyboardEvent(lv_event_t *e) {
   if (lv_event_get_code(e) == LV_EVENT_READY) closeEditor(true);
   else if (lv_event_get_code(e) == LV_EVENT_CANCEL) closeEditor(false);
 }
-static void edit(lv_event_t *e) {
+static void openEditor(lv_obj_t *fieldToEdit) {
   if ((page != 3 && page != 9) || editorOverlay) return;
-  editedField = (lv_obj_t *)lv_event_get_user_data(e);
+  editedField = fieldToEdit;
   // Use a visible editor on the top layer, independent of screen focus and clipping.
   editorOverlay = lv_obj_create(lv_display_get_layer_top(nullptr));
   lv_obj_set_pos(editorOverlay, 0, 0); lv_obj_set_size(editorOverlay, 480, 480);
@@ -186,11 +192,11 @@ static void edit(lv_event_t *e) {
   lv_obj_set_style_radius(editorOverlay, 0, 0);
   lv_obj_set_style_bg_color(editorOverlay, lv_color_hex(0x111827), 0);
   lv_obj_set_style_bg_opa(editorOverlay, LV_OPA_COVER, 0);
-  label(editorOverlay, page == 9 ? "Nome do grupo" : editedField == passField ? "Editar senha" : "Editar IP da mesa", 12, 14);
+  label(editorOverlay, page == 9 ? "Nome do grupo" : editedField == networkButton ? "Digitar SSID da rede" : editedField == passField ? "Editar senha" : "Editar IP da mesa", 12, 14);
   editorField = lv_textarea_create(editorOverlay);
   lv_obj_set_pos(editorField, 12, 50); lv_obj_set_size(editorField, 456, 52);
   lv_textarea_set_one_line(editorField, true);
-  lv_textarea_set_max_length(editorField, page == 9 ? 32 : editedField == passField ? 63 : 15);
+  lv_textarea_set_max_length(editorField, page == 9 || editedField == networkButton ? 32 : editedField == passField ? 63 : 15);
   if (editedField == hostField) lv_textarea_set_accepted_chars(editorField, "0123456789.");
   lv_textarea_set_password_mode(editorField, editedField == passField);
   lv_textarea_set_text(editorField, lv_textarea_get_text(editedField));
@@ -212,6 +218,7 @@ static void edit(lv_event_t *e) {
   }
   lv_obj_move_foreground(editorOverlay);
 }
+static void edit(lv_event_t *e) { openEditor((lv_obj_t *)lv_event_get_user_data(e)); }
 static void save(lv_event_t *) {
   // An untouched blank password field retains the stored secret.
   bool ok = saveNetworkKeepingPassword(chosenSSID, lv_textarea_get_text(passField),
@@ -236,6 +243,7 @@ static lv_obj_t *field(const char *caption, const String &value, int y, int maxL
 static void openNetworks(lv_event_t *) { show(4); }
 static void networksAction(lv_event_t *e) {
   int id = (intptr_t)lv_event_get_user_data(e);
+  if (id == 13) { show(3); openEditor(networkButton); return; }
   if (id == 10) { networkPage = 0; wifiStartScan(); return; }
   if (id == 11) { if (networkPage > 0) --networkPage; return; }
   if (id == 12) { if ((networkPage + 1) * 6 < (int)wifiNetworks().size()) ++networkPage; return; }
@@ -492,11 +500,11 @@ static void show(int next) {
     for (int i = 0; i < 6; ++i) networkRows[i] = networkRow(i);
     emptyNetworks = label(screen, "", 20, 182); lv_obj_set_width(emptyNetworks, 440);
     lv_obj_set_style_text_align(emptyNetworks, LV_TEXT_ALIGN_CENTER, 0);
-    previousNetworks = networkControl(LV_SYMBOL_LEFT, 12, 390, 42, 42, 11);
-    networkPager = label(screen, "", 60, 402); lv_obj_set_width(networkPager, 94);
+    previousNetworks = networkControl(LV_SYMBOL_LEFT, 12, 382, 42, 42, 11);
+    networkPager = label(screen, "", 60, 394); lv_obj_set_width(networkPager, 94);
     lv_obj_set_style_text_align(networkPager, LV_TEXT_ALIGN_CENTER, 0);
-    nextNetworks = networkControl(LV_SYMBOL_RIGHT, 160, 390, 42, 42, 12);
-    scanButton = networkControl(LV_SYMBOL_REFRESH " Buscar redes", 216, 390, 252, 42, 10);
+    nextNetworks = networkControl(LV_SYMBOL_RIGHT, 160, 382, 42, 42, 12);
+    scanButton = networkControl(LV_SYMBOL_REFRESH " Buscar redes", 216, 382, 252, 42, 10);
     for (lv_obj_t *arrow : {previousNetworks, nextNetworks}) {
       lv_obj_set_style_radius(arrow, 6, 0); lv_obj_set_style_pad_all(arrow, 0, 0);
       lv_obj_set_style_bg_color(arrow, lv_color_hex(0x334155), 0);
@@ -566,7 +574,10 @@ static void show(int next) {
     lv_obj_remove_event_cb(retryButton, pressed);
     lv_obj_add_event_cb(retryButton, connectionAction, LV_EVENT_CLICKED, (void *)1);
   }
-  if (page == 4) button("Voltar as configuracoes", 12, 438, 456, 30, 103);
+  if (page == 4) {
+    manualSSIDButton = networkControl("Digitar SSID", 12, 426, 222, 42, 13);
+    button("Voltar", 246, 426, 222, 42, 103);
+  }
   updateConnectionButton();
   lv_screen_load(rootScreen);
   if (old) lv_obj_delete(old);
@@ -649,6 +660,7 @@ static void refresh() {
   }
   if (page == 4) {
     const auto &nets = wifiNetworks();
+    disabled(manualSSIDButton, wifiScanning());
     int pages = max(1, ((int)nets.size() + 5) / 6);
     networkPage = min(networkPage, pages - 1);
     lv_label_set_text(networkPager, (String(networkPage + 1) + " / " + pages).c_str());
